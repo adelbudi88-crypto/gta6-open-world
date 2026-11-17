@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 tools/node_modules/
+tools/node_modules
 
 # Build / grader output
 out/

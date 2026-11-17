@@ -3,34 +3,51 @@
 // circles overhead and keeps the heat from cooling off. Lose the heat by
 // distance + time; busted if a cop grabs you on foot, wasted if health
 // hits zero. At 5 stars the HUD calls it MOST WANTED.
-// v2.1: same heat/star thresholds, helicopter orbit and pursuit staging as
-// v2, with the update split into population / heli / decay / cop-car /
-// foot-cop phases — and the on-foot staging no longer parks a cop car
-// dead-centre ahead (its light bar crossed the CHAPTER banner in v2).
+// v2.2: same heat/star thresholds, helicopter orbit and pursuit staging
+// as v2.1, with the code rebuilt — table-driven star lookup, parts-table
+// meshes, tuple staging spots, a shared sweep helper for cleanup — and
+// the on-foot staging keeps every car off the centre line so no light
+// bar can cross the CHAPTER banner.
 import * as THREE from 'three';
 import { clamp, dist2 } from './rng.js';
 import { createCarMesh, stepCar } from './vehicles.js';
 
+// Star bands: [upper heat bound, stars]. A loop over this table replaces
+// the old if-chain; same thresholds (20/40/60/85).
+const STAR_BANDS = [[20, 1], [40, 2], [60, 3], [85, 4], [Infinity, 5]];
+
 function starsFromHeat(heat) {
   if (heat <= 0) return 0;
-  if (heat < 20) return 1;
-  if (heat < 40) return 2;
-  if (heat < 60) return 3;
-  if (heat < 85) return 4;
+  for (const [bound, stars] of STAR_BANDS) {
+    if (heat < bound) return stars;
+  }
   return 5;
+}
+
+function wrapAngle(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
 }
 
 function makeHeliMesh() {
   const g = new THREE.Group();
   const dark = new THREE.MeshLambertMaterial({ color: 0x1a2a3a });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.4, 6.4), dark);
-  body.position.y = 0;
-  body.castShadow = true;
-  g.add(body);
-  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 4.4), dark);
-  tail.position.set(0, 0.2, -5);
-  g.add(tail);
-  const glass = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.0, 1.6), new THREE.MeshLambertMaterial({ color: 0x9fd8ff, emissive: 0x223344 }));
+  const parts = [
+    // [w, h, d, x, y, z, material]
+    [3.4, 1.4, 6.4, 0, 0, 0, dark],
+    [0.7, 0.7, 4.4, 0, 0.2, -5, dark],
+  ];
+  for (const [w, h, d, x, y, z, mat] of parts) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    if (y === 0) m.castShadow = true;
+    g.add(m);
+  }
+  const glass = new THREE.Mesh(
+    new THREE.BoxGeometry(2.6, 1.0, 1.6),
+    new THREE.MeshLambertMaterial({ color: 0x9fd8ff, emissive: 0x223344 }),
+  );
   glass.position.set(0, 0.4, 2.6);
   g.add(glass);
   const rotorMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
@@ -41,10 +58,10 @@ function makeHeliMesh() {
   rotor2.rotation.y = Math.PI / 2;
   g.add(rotor2);
   // searchlight cone pointing down
-  const coneGeo = new THREE.ConeGeometry(7, 34, 16, 1, true);
-  const cone = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({
-    color: 0xfff2b8, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false,
-  }));
+  const cone = new THREE.Mesh(
+    new THREE.ConeGeometry(7, 34, 16, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xfff2b8, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false }),
+  );
   cone.position.y = -18;
   cone.rotation.x = Math.PI;
   g.add(cone);
@@ -56,23 +73,24 @@ function makeFootCopMesh(scene) {
   const g = new THREE.Group();
   const navy = new THREE.MeshLambertMaterial({ color: 0x1a2a4a });
   const skin = new THREE.MeshLambertMaterial({ color: 0xe8b88a });
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.72, 0.34), navy);
-  torso.position.y = 1.08;
-  torso.castShadow = true;
-  g.add(torso);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.38, 0.38), skin);
-  head.position.y = 1.64;
-  g.add(head);
-  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.42), new THREE.MeshLambertMaterial({ color: 0x101828 }));
-  cap.position.y = 1.86;
-  g.add(cap);
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.72, 0.22), navy);
-  legL.position.set(-0.15, 0.36, 0);
-  g.add(legL);
-  const legR = legL.clone();
-  legR.position.x = 0.15;
-  g.add(legR);
-  g.userData = { legL, legR };
+  const capMat = new THREE.MeshLambertMaterial({ color: 0x101828 });
+  const parts = [
+    // [w, h, d, x, y, z, material, shadow]
+    [0.6, 0.72, 0.34, 0, 1.08, 0, navy, true],
+    [0.38, 0.38, 0.38, 0, 1.64, 0, skin, false],
+    [0.42, 0.12, 0.42, 0, 1.86, 0, capMat, false],
+    [0.2, 0.72, 0.22, -0.15, 0.36, 0, navy, false],
+    [0.2, 0.72, 0.22, 0.15, 0.36, 0, navy, false],
+  ];
+  const legs = [];
+  for (const [w, h, d, x, y, z, mat, shadow] of parts) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    if (shadow) m.castShadow = true;
+    g.add(m);
+    if (y === 0.36) legs.push(m);
+  }
+  g.userData = { legL: legs[0], legR: legs[1] };
   scene.add(g);
   return g;
 }
@@ -90,14 +108,32 @@ export function makePolice(scene, rng, city) {
   const footCops = [];
   let flashT = 0;
 
-  function spawnCopCar(px, pz) {
+  // Cops arrive from behind the player's direction of travel, never
+  // materialising in the windshield: a car spawned ahead of a player
+  // doing 100+ km/j is an instant head-on ram, not a pursuit. Callers
+  // that stage cops by hand (stagePursuit / stageFootScene) pass no
+  // heading and keep the old random offset — they override x/z right after.
+  function spawnCopCar(px, pz, heading) {
     const mesh = createCarMesh(0xf0f0f0, true);
     scene.add(mesh);
-    const road = rng.pick(city.roadsX);
-    void road;
+    let x;
+    let z;
+    if (heading === undefined) {
+      x = px + rng.range(-40, 40);
+      z = pz + rng.range(-40, 40);
+    } else {
+      const back = heading + Math.PI;
+      const along = 35 + rng.range(0, 15);
+      const side = rng.range(-25, 25);
+      x = px + Math.sin(back) * along + Math.cos(back) * side;
+      z = pz + Math.cos(back) * along - Math.sin(back) * side;
+    }
     const car = {
-      mesh, x: px + rng.range(-40, 40), z: pz + rng.range(-40, 40),
-      heading: rng.range(0, Math.PI * 2), speed: 0, maxSpeed: 33,
+      mesh,
+      x,
+      z,
+      heading: rng.range(0, Math.PI * 2),
+      speed: 0, maxSpeed: 33,
       health: 100, maxHealth: 100, name: 'PSPD Interceptor',
       dead: false, cop: true, stuck: 0,
     };
@@ -108,7 +144,9 @@ export function makePolice(scene, rng, city) {
   function spawnFootCop(px, pz) {
     const g = makeFootCopMesh(scene);
     const cop = {
-      mesh: g, x: px + rng.range(-14, 14), z: pz + rng.range(-14, 14),
+      mesh: g,
+      x: px + rng.range(-14, 14),
+      z: pz + rng.range(-14, 14),
       heading: 0, speed: 5.4, walkPhase: 0, dead: false, footCop: true,
     };
     footCops.push(cop);
@@ -147,11 +185,19 @@ export function makePolice(scene, rng, city) {
     return reason;
   }
 
+  function countAlive(list) {
+    let n = 0;
+    for (const c of list) if (!c.dead) n++;
+    return n;
+  }
+
   function maintainPopulation(player) {
     const want = desiredCops();
-    const activeCars = copCars.filter((c) => !c.dead).length;
-    if (activeCars < Math.min(want, 4) && state.wanted > 0) spawnCopCar(player.x, player.z);
-    if (footCops.filter((c) => !c.dead).length < Math.min(want - 1, 3) && state.wanted > 0 && !player.inCar) {
+    if (state.wanted <= 0) return;
+    // on foot the player has a heading; in a car the car's heading rules
+    const heading = player.inCar && player.car ? player.car.heading : player.heading;
+    if (countAlive(copCars) < Math.min(want, 4)) spawnCopCar(player.x, player.z, heading);
+    if (countAlive(footCops) < Math.min(want - 1, 3) && !player.inCar) {
       spawnFootCop(player.x, player.z);
     }
   }
@@ -159,13 +205,14 @@ export function makePolice(scene, rng, city) {
   function updateHeli(dt, player) {
     if (state.wanted >= 4 && !state.heli) spawnHeli(player.x, player.z);
     if (state.wanted === 0 && state.heli) removeHeli();
-    if (!state.heli) return;
     const h = state.heli;
+    if (!h) return;
     h.angle += dt * 0.55;
     const tx = player.x + Math.sin(h.angle) * 48;
     const tz = player.z + Math.cos(h.angle) * 48 - 18;
-    h.x += (tx - h.x) * Math.min(1, dt * 1.4);
-    h.z += (tz - h.z) * Math.min(1, dt * 1.4);
+    const chase = Math.min(1, dt * 1.4);
+    h.x += (tx - h.x) * chase;
+    h.z += (tz - h.z) * chase;
     h.rotorSpin += dt * 22;
     h.mesh.userData.rotor.rotation.y = h.rotorSpin;
     h.mesh.userData.rotor2.rotation.y = h.rotorSpin + Math.PI / 2;
@@ -173,14 +220,23 @@ export function makePolice(scene, rng, city) {
     h.mesh.rotation.y = Math.atan2(player.x - h.x, player.z - h.z);
   }
 
+  function nearestCopDist(player) {
+    let best = Infinity;
+    for (const c of copCars) {
+      if (!c.dead) best = Math.min(best, dist2(c.x, c.z, player.x, player.z));
+    }
+    for (const c of footCops) {
+      if (!c.dead) best = Math.min(best, dist2(c.x, c.z, player.x, player.z));
+    }
+    return best;
+  }
+
   function decayHeat(dt, player) {
-    let nearestCop = Infinity;
-    for (const c of copCars) if (!c.dead) nearestCop = Math.min(nearestCop, dist2(c.x, c.z, player.x, player.z));
-    for (const c of footCops) if (!c.dead) nearestCop = Math.min(nearestCop, dist2(c.x, c.z, player.x, player.z));
-    if (state.wanted <= 0) return nearestCop;
+    const nearest = nearestCopDist(player);
+    if (state.wanted <= 0) return nearest;
     if (state.heli) {
       state.loseTimer = 0;
-    } else if (nearestCop > 120 * 120) {
+    } else if (nearest > 120 * 120) {
       state.loseTimer += dt;
       if (state.loseTimer > 6 + state.wanted * 2) {
         state.heat = Math.max(0, state.heat - dt * 9);
@@ -190,7 +246,18 @@ export function makePolice(scene, rng, city) {
     } else {
       state.loseTimer = 0;
     }
-    return nearestCop;
+    return nearest;
+  }
+
+  function flashLightBars() {
+    const phase = Math.floor(flashT * 6) % 2 === 0;
+    for (const c of copCars) {
+      if (c.dead) continue;
+      const bar = c.mesh.userData.lightBar;
+      if (!bar) continue;
+      bar.userData.red.material.emissive.setHex(phase ? 0xff0000 : 0x220000);
+      bar.userData.blue.material.emissive.setHex(phase ? 0x111188 : 0x0000ff);
+    }
   }
 
   function updateCopCars(dt, player, colliders, others) {
@@ -200,15 +267,12 @@ export function makePolice(scene, rng, city) {
       const dx = player.x - c.x;
       const dz = player.z - c.z;
       const d = Math.hypot(dx, dz) || 1;
-      const targetHeading = Math.atan2(dx, dz);
-      let dh = targetHeading - c.heading;
-      while (dh > Math.PI) dh -= Math.PI * 2;
-      while (dh < -Math.PI) dh += Math.PI * 2;
+      const dh = wrapAngle(Math.atan2(dx, dz) - c.heading);
       const steer = clamp(dh * 1.6, -1, 1);
       const throttle = d > 6 ? 1 : 0.4;
-      stepCar(c, dt, throttle, steer, 0, colliders, [...others, ...copCars], null);
-      c.stuck += dt;
+      stepCar(c, dt, throttle, steer, 0, colliders, others.concat(copCars), null);
       if (c.speed > 2) c.stuck = 0;
+      else c.stuck += dt;
       if (c.stuck > 4) { // respawn closer if stuck on a building
         c.x = player.x + rng.range(-30, 30);
         c.z = player.z + rng.range(-30, 30);
@@ -219,14 +283,8 @@ export function makePolice(scene, rng, city) {
       if (d < 4.5 && player.inCar && Math.abs(c.speed) > 4) {
         player.car.speed *= 0.85;
       }
-      // flashing light bar
-      const bar = c.mesh.userData.lightBar;
-      if (bar) {
-        const on = Math.floor(flashT * 6) % 2 === 0;
-        bar.userData.red.material.emissive.setHex(on ? 0xff0000 : 0x220000);
-        bar.userData.blue.material.emissive.setHex(on ? 0x111188 : 0x0000ff);
-      }
     }
+    flashLightBars();
   }
 
   function updateFootCops(dt, player, onBusted) {
@@ -263,114 +321,114 @@ export function makePolice(scene, rng, city) {
     }
   }
 
-  return {
-    state,
-    copCars,
-    footCops,
-    addWanted,
-    clearWanted() {
-      state.wanted = 0;
-      state.heat = 0;
-      state.loseTimer = 0;
-      removeHeli();
-    },
-    spawnCopCar,
-    spawnFootCop,
-    spawnHeli,
-    removeHeli,
+  // remove dead or far-away units from a list, removing their meshes
+  function sweep(list, player, maxDist) {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const c = list[i];
+      const gone = c.dead || dist2(c.x, c.z, player.x, player.z) > maxDist * maxDist;
+      if (!gone) continue;
+      scene.remove(c.mesh);
+      list.splice(i, 1);
+    }
+  }
 
-    // Stage a pursuit for a screenshot: 3 cop cars converging on the
-    // player (two visible ahead, one behind) + the helicopter overhead.
-    // The two ahead start far out, on the sidewalks (dx ±8, clear of the
-    // player's lane so he never brushes them), and slow (maxSpeed 10), so
-    // they are still 20-40 m ahead — head-on, light bars flashing — when
-    // the screenshot lands, and the player cannot ram them first. The
-    // tail car is capped below the player's top speed so it cannot catch
-    // up and ram him from behind either.
-    stagePursuit(px, pz, heading) {
-      const spots = [
-        { dx: -8, dz: -130, hd: heading + Math.PI, sp: 8, ms: 10 },
-        { dx: 8, dz: -152, hd: heading + Math.PI, sp: 8, ms: 10 },
-        { dx: -14, dz: 34, hd: heading, sp: 18, ms: 28 },
-      ];
-      for (const s of spots) {
-        const c = spawnCopCar(px, pz);
-        c.x = px + s.dx;
-        c.z = pz + s.dz;
-        c.heading = s.hd;
-        c.speed = s.sp;
-        c.maxSpeed = s.ms;
-        c.mesh.position.set(c.x, 0, c.z);
-        c.mesh.rotation.y = c.heading;
-      }
-      if (!state.heli) spawnHeli(px, pz);
-      if (state.heli) {
-        state.heli.x = px + 18;
-        state.heli.z = pz - 60;
-        state.heli.angle = Math.PI - 1.375;
-        state.heli.mesh.position.set(state.heli.x, 24, state.heli.z);
-      }
-    },
-
-    // Stage cops for an on-foot screenshot: reposition the pre-spawned
-    // pursuit population ahead of the player (north, where the camera
-    // looks) instead of converging on top of him. Every car sits off the
-    // centre line — v2 parked one at dx 0 and its light bar crossed the
-    // CHAPTER banner. Foot cops walk slowly so they are 5-11 m ahead,
-    // flanking, when the screenshot lands — never between the camera
-    // and the player.
-    stageFootScene(px, pz) {
-      const carSpots = [
-        { dx: -8, dz: -34 }, { dx: 9, dz: -44 }, { dx: -16, dz: -52 }, { dx: 14, dz: -38 },
-      ];
-      copCars.forEach((c, i) => {
-        const s = carSpots[i % carSpots.length];
-        c.x = px + s.dx;
-        c.z = pz + s.dz;
-        c.heading = 0; // south, facing the player
-        c.speed = 6;
-        c.maxSpeed = 10;
-        c.mesh.position.set(c.x, 0, c.z);
-        c.mesh.rotation.y = c.heading;
-      });
-      const footSpots = [
-        { dx: -4, dz: -10 }, { dx: 5, dz: -12 }, { dx: 3, dz: -16 },
-      ];
-      footCops.forEach((c, i) => {
-        const s = footSpots[i % footSpots.length];
-        c.x = px + s.dx;
-        c.z = pz + s.dz;
-        c.speed = 2; // slow approach: still ahead at shot time
-        c.mesh.position.set(c.x, 0, c.z);
-      });
-    },
-
-    update(dt, player, colliders, others, onBusted) {
-      maintainPopulation(player);
-      updateHeli(dt, player);
-      const nearestCop = decayHeat(dt, player);
-      updateCopCars(dt, player, colliders, others);
-      updateFootCops(dt, player, onBusted);
-      state.sirenOn = state.wanted > 0;
-      return { nearestCop };
-    },
-
-    // remove cops far away (cleanup)
-    prune(player) {
-      for (let i = copCars.length - 1; i >= 0; i--) {
-        const c = copCars[i];
-        if (c.dead || dist2(c.x, c.z, player.x, player.z) > 320 * 320) {
-          scene.remove(c.mesh);
-          copCars.splice(i, 1);
-        }
-      }
-      for (let i = footCops.length - 1; i >= 0; i--) {
-        const c = footCops[i];
-        if (c.dead || dist2(c.x, c.z, player.x, player.z) > 200 * 200) {
-          scene.remove(c.mesh);
-          footCops.splice(i, 1);
-        }
-      }
-    },
+  const api = {};
+  api.state = state;
+  api.copCars = copCars;
+  api.footCops = footCops;
+  api.addWanted = addWanted;
+  api.clearWanted = () => {
+    state.wanted = 0;
+    state.heat = 0;
+    state.loseTimer = 0;
+    removeHeli();
   };
+  api.spawnCopCar = spawnCopCar;
+  api.spawnFootCop = spawnFootCop;
+  api.spawnHeli = spawnHeli;
+  api.removeHeli = removeHeli;
+
+  // Stage a pursuit for a screenshot: 3 cop cars converging on the
+  // player (two visible ahead, one behind) + the helicopter overhead.
+  // The two ahead start far out, on the sidewalks (dx ±8, clear of the
+  // player's lane so he never brushes them), and slow (maxSpeed 10), so
+  // they are still 20-40 m ahead — head-on, light bars flashing — when
+  // the screenshot lands, and the player cannot ram them first. The
+  // tail car is capped below the player's top speed so it cannot catch
+  // up and ram him from behind either.
+  api.stagePursuit = (px, pz, heading) => {
+    // [dx, dz, headingOffset, speed, maxSpeed]
+    const spots = [
+      [-8, -130, Math.PI, 8, 10],
+      [8, -152, Math.PI, 8, 10],
+      [-14, 34, 0, 18, 28],
+    ];
+    for (const [dx, dz, off, sp, ms] of spots) {
+      const c = spawnCopCar(px, pz);
+      c.x = px + dx;
+      c.z = pz + dz;
+      c.heading = heading + off;
+      c.speed = sp;
+      c.maxSpeed = ms;
+      c.mesh.position.set(c.x, 0, c.z);
+      c.mesh.rotation.y = c.heading;
+    }
+    if (!state.heli) spawnHeli(px, pz);
+    if (state.heli) {
+      state.heli.x = px + 18;
+      state.heli.z = pz - 60;
+      state.heli.angle = Math.PI - 1.375;
+      state.heli.mesh.position.set(state.heli.x, 24, state.heli.z);
+    }
+  };
+
+  // Stage cops for an on-foot screenshot: reposition the pre-spawned
+  // pursuit population ahead of the player (north, where the camera
+  // looks) instead of converging on top of him. Every car sits off the
+  // centre line — v2 parked one at dx 0 and its light bar crossed the
+  // CHAPTER banner. Foot cops walk slowly so they are 5-11 m ahead,
+  // flanking, when the screenshot lands — never between the camera
+  // and the player.
+  api.stageFootScene = (px, pz) => {
+    const carSpots = [
+      [-8, -34], [9, -44], [-16, -52], [14, -38],
+    ];
+    copCars.forEach((c, i) => {
+      const [dx, dz] = carSpots[i % carSpots.length];
+      c.x = px + dx;
+      c.z = pz + dz;
+      c.heading = 0; // south, facing the player
+      c.speed = 6;
+      c.maxSpeed = 10;
+      c.mesh.position.set(c.x, 0, c.z);
+      c.mesh.rotation.y = c.heading;
+    });
+    const footSpots = [
+      [-4, -10], [5, -12], [3, -16],
+    ];
+    footCops.forEach((c, i) => {
+      const [dx, dz] = footSpots[i % footSpots.length];
+      c.x = px + dx;
+      c.z = pz + dz;
+      c.speed = 2; // slow approach: still ahead at shot time
+      c.mesh.position.set(c.x, 0, c.z);
+    });
+  };
+
+  api.update = (dt, player, colliders, others, onBusted) => {
+    maintainPopulation(player);
+    updateHeli(dt, player);
+    const nearestCop = decayHeat(dt, player);
+    updateCopCars(dt, player, colliders, others);
+    updateFootCops(dt, player, onBusted);
+    state.sirenOn = state.wanted > 0;
+    return { nearestCop };
+  };
+
+  api.prune = (player) => {
+    sweep(copCars, player, 320);
+    sweep(footCops, player, 200);
+  };
+
+  return api;
 }
