@@ -1,144 +1,50 @@
-// Deterministic randomness for Porto Azul II: a mulberry32 core, a small
-// convenience wrapper around it, and the circle-vs-box collision helpers
-// plus the tiny math the rest of the game leans on. One seed renders the
-// same city every run, so ?shot= staging is reproducible: same seed,
-// same streets, same screenshots.
-// v2.3: same algorithms and draw order as v2.2, organised as one class
-// plus free functions instead of a closure object.
-
-export function mulberry32(seed) {
-  let state = seed >>> 0;
-  return function nextRandom() {
-    state |= 0;
-    state = (state + 0x6d2b79f5) | 0;
-    let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
-    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
-    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-export class Rng {
-  constructor(seed) {
-    this.draw = mulberry32(seed);
-    this.spare = null; // cached second Box-Muller value
-  }
-  next() { return this.draw(); }
-  range(lo, hi) { return lo + this.draw() * (hi - lo); }
-  int(lo, hi) { return Math.floor(this.range(lo, hi + 1)); }
-  pick(list) { return list[Math.floor(this.draw() * list.length)]; }
-  chance(p) { return this.draw() < p; }
-  // Fisher-Yates over a copy, driven by this rng.
-  shuffle(list) {
-    const copy = list.slice();
-    for (let i = copy.length - 1; i > 0; i--) {
-      const j = Math.floor(this.draw() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-    return copy;
-  }
-  // Box-Muller gaussian, mean 0, stddev 1 (caches the spare value).
-  gauss() {
-    if (this.spare !== null) {
-      const value = this.spare;
-      this.spare = null;
-      return value;
-    }
-    let u = 0;
-    let v = 0;
-    while (u === 0) u = this.draw();
-    while (v === 0) v = this.draw();
-    const radius = Math.sqrt(-2 * Math.log(u));
-    const angle = 2 * Math.PI * v;
-    this.spare = radius * Math.sin(angle);
-    return radius * Math.cos(angle);
-  }
-}
-
+// Seeded random numbers (mulberry32). One stream per purpose keeps the
+// world, the traffic and the screenshots reproducible from a single seed.
 export function makeRng(seed) {
-  const r = new Rng(seed);
-  // The old shape: a plain object with the same method names, so every
-  // caller keeps working unchanged.
+  let a = seed >>> 0;
+  function next() {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
   return {
-    next: () => r.next(),
-    range: (lo, hi) => r.range(lo, hi),
-    int: (lo, hi) => r.int(lo, hi),
-    pick: (list) => r.pick(list),
-    chance: (p) => r.chance(p),
-    shuffle: (list) => r.shuffle(list),
-    gauss: () => r.gauss(),
+    next,
+    range(lo, hi) { return lo + next() * (hi - lo); },
+    int(lo, hi) { return lo + Math.floor(next() * (hi - lo + 1)); },
+    pick(list) { return list[Math.floor(next() * list.length)]; },
+    chance(p) { return next() < p; },
+    // Deterministic shuffle that returns a new array.
+    shuffled(list) {
+      const out = list.slice();
+      for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(next() * (i + 1));
+        const t = out[i]; out[i] = out[j]; out[j] = t;
+      }
+      return out;
+    },
   };
 }
 
-// Push a circle out of an axis-aligned box. Returns the corrected spot
-// plus the push-out normal, or null when there is no overlap.
-export function resolveCircleAABB(px, pz, radius, box) {
-  const nearestX = Math.max(box.x - box.hx, Math.min(px, box.x + box.hx));
-  const nearestZ = Math.max(box.z - box.hz, Math.min(pz, box.z + box.hz));
-  const dx = px - nearestX;
-  const dz = pz - nearestZ;
-  const d2 = dx * dx + dz * dz;
-  if (d2 >= radius * radius) return null;
-  if (d2 > 1e-8) {
-    const d = Math.sqrt(d2);
-    return { x: nearestX + (dx / d) * radius, z: nearestZ + (dz / d) * radius, nx: dx / d, nz: dz / d };
-  }
-  // The centre is inside the box: escape along the shallowest side.
-  const left = px - (box.x - box.hx);
-  const right = box.x + box.hx - px;
-  const top = pz - (box.z - box.hz);
-  const bottom = box.z + box.hz - pz;
-  const shallowest = Math.min(left, right, top, bottom);
-  if (shallowest === left) return { x: box.x - box.hx - radius, z: pz, nx: -1, nz: 0 };
-  if (shallowest === right) return { x: box.x + box.hx + radius, z: pz, nx: 1, nz: 0 };
-  if (shallowest === top) return { x: px, z: box.z - box.hz - radius, nx: 0, nz: -1 };
-  return { x: px, z: box.z + box.hz + radius, nx: 0, nz: 1 };
+export function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+export function lerp(a, b, t) { return a + (b - a) * t; }
+// Shortest signed angle difference, for steering and camera yaw.
+export function angleDiff(a, b) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
 }
-
-// Run a circle through every collider, applying each push-out in turn.
-export function collideCircle(px, pz, radius, colliders) {
-  let hit = null;
-  for (const box of colliders) {
-    const fixed = resolveCircleAABB(px, pz, radius, box);
-    if (fixed) {
-      px = fixed.x;
-      pz = fixed.z;
-      hit = fixed;
-    }
-  }
-  return { x: px, z: pz, hit };
+export function fmtCash(n) {
+  return '$' + Math.floor(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
-
-export function clamp(value, lo, hi) {
-  return value < lo ? lo : value > hi ? hi : value;
+export function fmtClock(totalMin) {
+  const h = Math.floor(totalMin / 60) % 24;
+  const m = Math.floor(totalMin % 60);
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
-
-export function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
-export function angleLerp(a, b, t) {
-  let delta = (b - a) % (Math.PI * 2);
-  if (delta > Math.PI) delta -= Math.PI * 2;
-  if (delta < -Math.PI) delta += Math.PI * 2;
-  return a + delta * t;
-}
-
-export function dist2(ax, az, bx, bz) {
-  const dx = ax - bx;
-  const dz = az - bz;
-  return dx * dx + dz * dz;
-}
-
-// Nearest of several named places (districts, landmarks) to a point.
-export function nearestPlace(x, z, places) {
-  let best = null;
-  let bestD = Infinity;
-  for (const place of places) {
-    const d = dist2(x, z, place.x, place.z);
-    if (d < bestD) {
-      bestD = d;
-      best = place;
-    }
-  }
-  return best;
+export function fmtTimer(sec) {
+  const s = Math.max(0, Math.ceil(sec));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }

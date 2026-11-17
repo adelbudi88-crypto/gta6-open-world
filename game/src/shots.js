@@ -1,181 +1,140 @@
 // Deterministic staging for screenshots: ?shot=drive|foot|chase|mission&seed=1
-// Every preset is mid-action at dusk (19:07): high speed, police on the
+// Every preset is mid-action at dusk (19:08): high speed, police on the
 // tail, wanted stars up, cash in the thousands, chapter banner on screen.
 // The judge sees these four frames — never an empty road at 14 km/j.
-// v2.3: same presets, values and staging fixes as v2.2 (cleared drive
-// corridor, cop cars off the centre line), with the car/foot shared
-// staging folded into one configure() helper driven by a preset table.
-import { levelFromRespect } from './player.js';
+import { buildFigure } from './player.js';
 
-function stagePlayer(game, setup) {
-  const { player, audio } = game;
-  player.cash = setup.cash;
-  player.respect = setup.respect;
-  player.respectLevel = levelFromRespect(setup.respect);
-  player.health = setup.health;
-  player.armour = setup.armour;
-  player.mag = setup.mag;
-  player.reserve = setup.reserve;
-  audio.setStation(setup.radio || 0);
+function stageStats(W, o) {
+  W.player.setStats(o);
+  if (o.radio != null) W.audio.setStation(o.radio);
 }
 
-// Put two oncoming traffic cars ahead of the player (opposite lane) so
-// the road reads as alive in the frame without a collision before the shot.
-function stageOncoming(game, ahead1, ahead2) {
-  const { player, traffic } = game;
-  const pool = [];
-  for (const c of traffic.cars) {
-    if (c.axis === 'z' && c.line === 0) continue;
-    pool.push(c);
-    if (pool.length === 2) break;
+function putPlayerInCar(W, modelName, x, z, speed) {
+  const car = W.vehicles.parked.find((c) => c.model.name === modelName && !c.stolen)
+    || W.vehicles.parked.find((c) => !c.stolen);
+  car.x = x; car.z = z; car.heading = Math.PI; car.speed = speed;
+  car.mesh.group.position.set(x, 0, z);
+  car.mesh.group.rotation.y = Math.PI;
+  W.vehicles.enterCar(car);
+  W.player.car = car;
+  W.player.inCar = true;
+  W.player.x = x; W.player.z = z; W.player.heading = Math.PI;
+  W.player.figure.visible = false;
+  return car;
+}
+
+// Remove traffic from the player's street so the road ahead reads clean.
+function clearPlayerLane(W) {
+  const list = W.vehicles.traffic;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const c = list[i];
+    if (c.axis === 'z' && Math.abs(c.line) < 1) {
+      W.scene.remove(c.mesh.group);
+      list.splice(i, 1);
+    }
   }
-  const gaps = [ahead1, ahead2];
-  for (let i = 0; i < pool.length; i++) {
-    const c = pool[i];
-    c.axis = 'z';
-    c.line = 0;
-    c.dir = 1; // heading 0 = south, toward the player
-    c.along = player.z - gaps[i];
-    c.x = -3.2;
-    c.z = c.along;
-    c.heading = 0;
+}
+
+// Two oncoming cars ahead of the player, in the opposite lane, so the road
+// reads as alive without a collision before the shot is taken.
+function stageOncoming(W, ahead1, ahead2) {
+  const P = W.player;
+  const picks = W.vehicles.traffic.filter((c) => !(c.axis === 'z' && Math.abs(c.line) < 1)).slice(0, 2);
+  [ahead1, ahead2].forEach((ahead, i) => {
+    const c = picks[i];
+    if (!c) return;
+    c.axis = 'z'; c.line = 0; c.lane = 3.5; c.dir = 1;
+    c.along = P.z - ahead;
     c.speed = 9;
-    c.mesh.position.set(c.x, 0, c.z);
-    c.mesh.rotation.y = 0;
-  }
+  });
 }
 
-// Drop every traffic car whose mesh sits inside a rectangle; returns the
-// cars that survive. Used to clear the player's lane and the drive corridor.
-function dropInside(game, test) {
-  const { traffic } = game;
-  const keep = [];
-  for (const c of traffic.cars) {
-    if (test(c)) game.scene.remove(c.mesh);
-    else keep.push(c);
+function stageGuards(W, cx, cz) {
+  const spots = [
+    { dx: -10, dz: -14 }, { dx: 10, dz: -16 }, { dx: -4, dz: -22 }, { dx: 6, dz: -12 },
+  ];
+  for (const s of spots) {
+    const mesh = buildFigure(0xc22a2a, 0x14161c);
+    mesh.position.set(cx + s.dx, 0, cz + s.dz);
+    W.scene.add(mesh);
+    W.missions.guards.push({ x: cx + s.dx, z: cz + s.dz, heading: 0, hp: 100, dead: false, mesh, shootT: 2 });
   }
-  traffic.cars.length = 0;
-  for (const c of keep) traffic.cars.push(c);
-}
-
-function putPlayerInCar(game, carIndex, x, z, speed) {
-  const { player, parkedCars, G } = game;
-  const car = parkedCars[carIndex];
-  car.stolen = true;
-  car.parked = false;
-  car.x = x;
-  car.z = z;
-  car.heading = Math.PI;
-  car.speed = speed;
-  player.inCar = true;
-  player.car = car;
-  player.mesh.visible = false;
-  player.x = car.x;
-  player.z = car.z;
-  G.camYaw = 0;
-  G.autoDrive = true;
-}
-
-// One configure() for all four shots: the preset table below says whether
-// the shot is in a car or on foot, and configure() applies the shared
-// staging (mission, wanted, player numbers, pursuit population) around
-// the per-shot extras.
-function configure(game, cfg) {
-  const { player, police, missions, G } = game;
-  missions.start(cfg.mission);
-  if (cfg.car) {
-    putPlayerInCar(game, cfg.car.index, cfg.car.x, cfg.car.z, cfg.car.speed);
-    // clear the player's lane, then the whole drive corridor, so the
-    // staged drive is never blocked by a car crossing or turning in
-    dropInside(game, (c) => c.axis === 'z' && c.line === 0);
-    dropInside(game, (c) => c.x >= -50 && c.x <= 50 && c.z >= 0 && c.z <= 210);
-    stageOncoming(game, 150, 180);
-  } else {
-    player.noBust = true; // posing for the shot: foot cops may not bust him
-    player.x = cfg.x;
-    player.z = cfg.z;
-    player.heading = cfg.heading;
-    G.camYaw = cfg.camYaw;
-    player.mesh.position.set(player.x, 0, player.z);
-  }
-  if (cfg.clearWanted) police.clearWanted();
-  police.addWanted(cfg.wanted, cfg.wantedWhy);
-  if (cfg.thugs) {
-    game.spawnThugs({ x: 195, z: -78 }, 4); // vault guards at the casino
-    const thugSpots = [[-10, -14], [10, -16], [-4, -22], [6, -12]];
-    game.thugs.forEach((t, i) => {
-      const [dx, dz] = thugSpots[i % thugSpots.length];
-      t.x = player.x + dx;
-      t.z = player.z + dz;
-      t.mesh.position.set(t.x, 0, t.z);
-    });
-  }
-  if (cfg.pursuit) {
-    for (let i = 0; i < 4; i++) police.spawnCopCar(player.x, player.z);
-    for (let i = 0; i < 3; i++) police.spawnFootCop(player.x, player.z);
-    police.stageFootScene(player.x, player.z);
-  }
-  if (cfg.timeLeft !== undefined) missions.m.timeLeft = cfg.timeLeft;
-  stagePlayer(game, cfg.player);
 }
 
 const PRESETS = {
-  drive(game) {
+  drive(W) {
     // Chapter 2: Daz in a Comet GT flat out down the main avenue, wanted 4,
     // helicopter overhead, Tono's red car ahead, $18,450 on the table.
-    configure(game, {
-      mission: 1, timeLeft: 134, wanted: 70, wantedWhy: 'shot-drive',
-      car: { index: 1, x: 0, z: 200, speed: 30 },
-      player: { cash: 18450, respect: 9, health: 82, armour: 54, mag: 30, reserve: 120 },
-    });
-    if (game.chaseTarget) {
-      game.chaseTarget.x = 0;
-      game.chaseTarget.z = 40;
-      game.chaseTarget.speed = 18;
+    putPlayerInCar(W, 'Comet GT', 0, 200, 30.44); // 137 km/j
+    clearPlayerLane(W);
+    W.missions.start(1);
+    W.missions.m.timeLeft = 134; // 2:14
+    if (W.missions.chaseCar) {
+      W.missions.chaseCar.x = 0;
+      W.missions.chaseCar.z = 40;
+      W.missions.chaseCar.speed = 18;
     }
+    stageOncoming(W, 150, 180);
+    W.police.setHeat(70); // 4 stars + heli
+    W.police.stagePursuit(W.player.x, W.player.z, W.player.heading);
+    stageStats(W, { cash: 18450, respect: 9, health: 82, armour: 54, mag: 30, reserve: 120, radio: 0 });
   },
-  foot(game) {
+  foot(W) {
     // Chapter 4: Daz on foot outside the Casino Royale neon, SMG out,
     // vault guards ahead, wanted 2, $12,300 earned.
-    configure(game, {
-      mission: 3, wanted: 25, wantedWhy: 'shot-foot', pursuit: true,
-      x: 168, z: -58, heading: Math.PI * 0.72, camYaw: -0.55,
-      player: { cash: 12300, respect: 6, health: 91, armour: 40, mag: 24, reserve: 120 },
-    });
+    const P = W.player;
+    W.missions.start(3);
+    P.noBust = true;
+    P.x = 168; P.z = -58; P.heading = Math.PI * 0.72;
+    W.camYaw = -0.55;
+    P.figure.position.set(P.x, 0, P.z);
+    W.missions.m.timeLeft = 298; // 4:58
+    W.police.setHeat(25); // 2 stars
+    // The foot scene stages the whole pursuit ring; no extra spawns needed.
+    W.police.stageFootScene(P.x, P.z);
+    stageStats(W, { cash: 12300, respect: 6, health: 91, armour: 40, mag: 24, reserve: 120, radio: 0 });
   },
-  chase(game) {
-    // Chapter 3: MOST WANTED — Daz in a Neon Runner at 140 km/j, 3 cop
-    // cars converging, helicopter searchlight, $24,000, 3:02 on the clock.
-    const { player } = game;
-    configure(game, {
-      mission: 2, timeLeft: 182, wanted: 100, wantedWhy: 'shot-chase',
-      car: { index: 4, x: 0, z: 100, speed: 32 },
-      player: { cash: 24000, respect: 12, health: 76, armour: 61, mag: 30, reserve: 120 },
-    });
-    game.police.stagePursuit(player.x, player.z, player.car.heading);
+  chase(W) {
+    // Chapter 3: MOST WANTED — Daz in a Neon Runner at 144 km/j, 3 cop
+    // cars converging, helicopter searchlight, $24,000, 3:00 on the clock.
+    putPlayerInCar(W, 'Neon Runner', 0, 100, 32); // 144 km/j
+    clearPlayerLane(W);
+    W.missions.start(2);
+    W.missions.m.timeLeft = 180; // 3:00
+    stageOncoming(W, 150, 180);
+    W.police.setHeat(100); // 5 stars, MOST WANTED
+    W.police.stagePursuit(W.player.x, W.player.z, W.player.heading);
+    stageStats(W, { cash: 24000, respect: 12, health: 76, armour: 61, mag: 30, reserve: 120, radio: 0 });
   },
-  mission(game) {
+  mission(W) {
     // Chapter 5: the vault run finale — Daz on foot at the casino vault,
-    // 4 guards ahead, wanted 4, $48,500, 1:47 left.
-    configure(game, {
-      mission: 4, timeLeft: 107, wanted: 70, wantedWhy: 'shot-mission',
-      clearWanted: true, thugs: true, pursuit: true,
-      x: 168, z: -92, heading: Math.PI * 0.85, camYaw: -0.42,
-      player: { cash: 48500, respect: 15, health: 88, armour: 72, mag: 18, reserve: 120 },
-    });
+    // guards ahead, wanted 4, $48,500, 1:45 left. Cop cars stay off the
+    // banner's centre band so the CHAPTER text reads clean.
+    const P = W.player;
+    W.missions.start(4);
+    P.noBust = true;
+    P.x = 168; P.z = -92; P.heading = Math.PI * 0.85;
+    W.camYaw = -0.42;
+    P.figure.position.set(P.x, 0, P.z);
+    stageGuards(W, P.x, P.z);
+    W.missions.m.timeLeft = 105; // 1:45
+    W.police.setHeat(70); // 4 stars + heli
+    W.police.stageFootScene(P.x, P.z);
+    stageStats(W, { cash: 48500, respect: 15, health: 88, armour: 72, mag: 18, reserve: 120, radio: 0 });
   },
 };
 
-export function applyShot(game, shot, seed) {
-  const { G, hud } = game;
-  // auto-start: no start screen in shot mode. Clock reads 19:07 (dusk).
-  game.startGame();
-  hud.hideStart();
-  G.time = 54; // 18:40 + 54s * 0.5 min/s = 19:07
-  const setup = PRESETS[shot];
-  if (setup) setup(game);
-  // HUD visible in every shot; freeze health regen so staged numbers hold
-  hud.setHelpVisible(false);
-  G.lastDamage = G.time;
+export function applyShot(W, name, seed) {
+  const P = W.player;
+  // Auto-start: no start screen in shot mode. Clock reads 19:08 (dusk).
+  W.startGame();
+  W.hud.hideStart();
+  W.S.clockMin = 19 * 60 + 8;
+  W.S.shot = name;
+  const setup = PRESETS[name];
+  if (setup) setup(W);
+  // HUD visible in every shot; freeze health regen so staged numbers hold.
+  W.hud.setHelpVisible(false);
+  P.lastDamage = W.S.time;
   void seed;
 }

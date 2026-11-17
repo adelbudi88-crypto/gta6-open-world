@@ -1,27 +1,6 @@
-# Node / tooling
 node_modules/
-tools/node_modules/
-tools/node_modules
-
-# Local overrides and secrets (never commit)
-*.local
-.env
-.env.*
-
-# Build and grader output
-out/
 dist/
-coverage/
-.cache/
-
-# Logs and scratch
-*.log
-*.tmp
-
-# Playwright artifacts
-test-results/
-playwright-report/
-
-# OS junk
+*.local
 .DS_Store
-Thumbs.db
+tools/node_modules
+out/
