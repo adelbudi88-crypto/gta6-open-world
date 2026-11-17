@@ -3,9 +3,12 @@
 // checks console errors + external requests, plays the systems a bit
 // (walk, drive, steal, wanted, shoot, reload, radio, garage, helicopter),
 // and writes 4 JPEG screenshots (1280x800, <=256 KiB) to screenshots/.
+// The shot list (name + query) comes from shots.json; the per-shot
+// expectations live here, keyed by file name.
+// v2.1: manifest-driven shot loop, server + expectation helpers split out.
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
-import { createReadStream, existsSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createReadStream, statSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +16,9 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const root = resolve(join(here, '..', 'game'));
 const outDir = resolve(join(here, '..', 'screenshots'));
 mkdirSync(outDir, { recursive: true });
+
+// Shot manifest: the four frames the judge sees, in order.
+const SHOTS = JSON.parse(readFileSync(join(here, '..', 'shots.json'), 'utf8'));
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -23,18 +29,25 @@ const MIME = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
 };
 
-const server = createServer((req, res) => {
+function staticHandler(req, res) {
   const url = new URL(req.url ?? '/', 'http://localhost');
   let pathname = decodeURIComponent(url.pathname);
   if (pathname.endsWith('/')) pathname += 'index.html';
   const file = resolve(join(root, normalize(pathname)));
-  if (file !== root && !file.startsWith(root + sep)) { res.writeHead(403).end('forbidden'); return; }
+  if (file !== root && !file.startsWith(root + sep)) {
+    res.writeHead(403).end('forbidden');
+    return;
+  }
   try {
     const size = statSync(file).size;
     res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream', 'content-length': size });
     createReadStream(file).pipe(res);
-  } catch { res.writeHead(404).end('not found'); }
-});
+  } catch {
+    res.writeHead(404).end('not found');
+  }
+}
+
+const server = createServer(staticHandler);
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 console.log('serving on', port);
@@ -48,7 +61,39 @@ function hudText(page, id) {
   return page.evaluate((i) => document.getElementById(i)?.textContent ?? '', id);
 }
 
-async function testShot(name, query, expect) {
+// Per-shot expectations, keyed by screenshot file name.
+const EXPECT = {
+  '1-drive.jpg': {
+    chapter: (v) => v === 'CHAPTER 2/5',
+    chapterVisible: (v) => v === true,
+    cash: (v) => v.includes('18.450'),
+    speed: (v) => parseInt(v, 10) >= 100,
+    stats: (s) => s && s.heli === true && s.car && s.car.health === 100,
+  },
+  '2-foot.jpg': {
+    chapter: (v) => v === 'CHAPTER 4/5',
+    weapon: (v) => v.includes('HORNET SMG'),
+    cash: (v) => v.includes('12.300'),
+    wanted: (v) => v === 'WANTED 2/5',
+  },
+  '3-chase.jpg': {
+    chapter: (v) => v === 'CHAPTER 3/5',
+    chapterVisible: (v) => v === true,
+    wanted: (v) => v === 'MOST WANTED',
+    speed: (v) => parseInt(v, 10) >= 120,
+    cash: (v) => v.includes('24.000'),
+    stats: (s) => s && s.heli === true && s.cops >= 3 && s.car && s.car.health === 100,
+  },
+  '4-mission.jpg': {
+    chapter: (v) => v === 'CHAPTER 5/5',
+    cash: (v) => v.includes('48.500'),
+    timer: (v) => v.startsWith('1:4'),
+    wanted: (v) => v === 'WANTED 4/5',
+    stats: (s) => s && s.thugs === 4,
+  },
+};
+
+async function testShot(name, query) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const consoleErrors = [];
   const externalReqs = [];
@@ -79,6 +124,7 @@ async function testShot(name, query, expect) {
   console.log(`[${name}] stats:`, JSON.stringify(state), 'hud:', JSON.stringify(hud), 'errors:', consoleErrors.length, 'external:', externalReqs.length);
   if (consoleErrors.length) { failures.push(`${name}: console errors: ${consoleErrors.slice(0, 3).join(' | ')}`); }
   if (externalReqs.length) { failures.push(`${name}: external requests: ${externalReqs.slice(0, 3).join(' | ')}`); }
+  const expect = EXPECT[name];
   if (expect) {
     for (const [key, check] of Object.entries(expect)) {
       const val = key === 'stats' ? state : hud[key];
@@ -178,35 +224,10 @@ async function playSystems(page) {
   if (errs.length) failures.push(`play: errors: ${errs.slice(0, 3).join(' | ')}`);
 }
 
-// 4 screenshots (cover first by name), each with v2 expectations
-await testShot('1-drive.jpg', '?shot=drive&seed=1', {
-  chapter: (v) => v === 'CHAPTER 2/5',
-  chapterVisible: (v) => v === true,
-  cash: (v) => v.includes('18.450'),
-  speed: (v) => parseInt(v, 10) >= 100,
-  stats: (s) => s && s.heli === true && s.car && s.car.health === 100,
-});
-await testShot('2-foot.jpg', '?shot=foot&seed=1', {
-  chapter: (v) => v === 'CHAPTER 4/5',
-  weapon: (v) => v.includes('HORNET SMG'),
-  cash: (v) => v.includes('12.300'),
-  wanted: (v) => v === 'WANTED 2/5',
-});
-await testShot('3-chase.jpg', '?shot=chase&seed=1', {
-  chapter: (v) => v === 'CHAPTER 3/5',
-  chapterVisible: (v) => v === true,
-  wanted: (v) => v === 'MOST WANTED',
-  speed: (v) => parseInt(v, 10) >= 120,
-  cash: (v) => v.includes('24.000'),
-  stats: (s) => s && s.heli === true && s.cops >= 3 && s.car && s.car.health === 100,
-});
-await testShot('4-mission.jpg', '?shot=mission&seed=1', {
-  chapter: (v) => v === 'CHAPTER 5/5',
-  cash: (v) => v.includes('48.500'),
-  timer: (v) => v.startsWith('1:4'),
-  wanted: (v) => v === 'WANTED 4/5',
-  stats: (s) => s && s.thugs === 4,
-});
+// 4 screenshots from the shots.json manifest, in order
+for (const shot of SHOTS) {
+  await testShot(shot.name, shot.query);
+}
 // live playthrough (no shot param) on a plain page
 {
   const page = await browser.newPage({ viewport: { width: 800, height: 500 } });

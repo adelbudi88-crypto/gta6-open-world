@@ -2,6 +2,8 @@
 // takes jobs from Mara and Benny — five chained chapters with a timer and a
 // payout each, from a first delivery to a casino vault run under 5 stars.
 // Missions are data + a small state machine; the game wires the callbacks.
+// v2.1: the per-chapter win checks live in a STEPS table instead of one
+// long if/else chain, and the mission banner shows the payout up front.
 import * as THREE from 'three';
 import { dist2 } from './rng.js';
 
@@ -90,7 +92,11 @@ export function makeMissions(scene, rng, city, hooks) {
     arrow.position.set(x, 9, z);
     arrow.visible = true;
   }
-  function hideMarker() { m.marker = null; beacon.visible = false; arrow.visible = false; }
+  function hideMarker() {
+    m.marker = null;
+    beacon.visible = false;
+    arrow.visible = false;
+  }
 
   function start(i) {
     m.index = i;
@@ -109,7 +115,10 @@ export function makeMissions(scene, rng, city, hooks) {
     if (i === 1) hooks.startChase();
     if (i === 2) hooks.startEscape();
     if (i === 3) setMarker(city.casino.x, city.casino.z);
-    if (i === 4) { hooks.startFinale(); setMarker(city.garage.x, city.garage.z); }
+    if (i === 4) {
+      hooks.startFinale();
+      setMarker(city.garage.x, city.garage.z);
+    }
   }
 
   function fail(reason) {
@@ -134,6 +143,72 @@ export function makeMissions(scene, rng, city, hooks) {
     }
   }
 
+  function advanceAfterEscape(ctx) {
+    ctx.removeChaseTarget();
+    hideMarker();
+    m.index++;
+    m.phase = 'idle';
+    setTimeout(() => start(m.index), 1200);
+  }
+
+  // One win-check per chapter, in story order.
+  const STEPS = [
+    // 1 — delivery: reach the casino.
+    (ctx) => {
+      if (dist2(ctx.player.x, ctx.player.z, city.casino.x, city.casino.z) < 100) {
+        hooks.onMessage('Paket diserahkan. Benny: "Bagus. Ada kerjaan lagi buatmu."');
+        complete();
+      }
+    },
+    // 2 — chase: stay close to Tono's red Comet for 3 seconds (the
+    // proximity timer lives in update, this step only tracks the marker).
+    (ctx) => {
+      const target = ctx.chaseTarget;
+      if (!target) {
+        complete();
+        return;
+      }
+      if (target.escaped) {
+        hooks.onMessage('Tono lolos... Mara: "Sial. Kita coba lagi lain kali."');
+        advanceAfterEscape(ctx);
+        return;
+      }
+      setMarker(target.x, target.z);
+    },
+    // 3 — escape: lose the heat entirely.
+    (ctx) => {
+      if (ctx.police.state.wanted === 0) {
+        hooks.onMessage('Polisi kehilangan jejakmu. Mara: "Bersih. Lanjutkan."');
+        complete();
+      }
+    },
+    // 4 — vault: beat the guards, then grab the cash.
+    (ctx) => {
+      if (!m.thugsSpawned) {
+        m.thugsSpawned = true;
+        hooks.spawnThugs({ x: city.casino.x, z: city.casino.z }, 4);
+        hooks.onMessage('Penjaga kasino menghadang! Kalahkan mereka.');
+      }
+      if (m.thugsLeft <= 0 && m.thugsSpawned && ctx.thugsDefeated && !m.vaultTaken) {
+        m.vaultTaken = true;
+        setMarker(city.casino.x + 12, city.casino.z + 8);
+        hooks.onObjective('Ambil uang brankas di Casino Royale');
+        hooks.onMessage('Kasino bersih. Ambil uang brankasnya.');
+      } else if (m.vaultTaken && dist2(ctx.player.x, ctx.player.z, city.casino.x + 12, city.casino.z + 8) < 36) {
+        hooks.onMessage('Uang brankas di tangan. Benny: "Cantik. Sekarang hilang."');
+        complete();
+      }
+    },
+    // 5 — finale: reach Benny's garage.
+    (ctx) => {
+      if (dist2(ctx.player.x, ctx.player.z, city.garage.x, city.garage.z) < 120) {
+        hooks.onMessage('Daz sampai di garasi Benny. Semua polisi kehilangan jejak.');
+        ctx.police.clearWanted();
+        complete();
+      }
+    },
+  ];
+
   return {
     m,
     current,
@@ -156,70 +231,28 @@ export function makeMissions(scene, rng, city, hooks) {
       m.timeLeft -= dt;
       if (m.timeLeft <= 0) {
         m.timeLeft = 0;
-        if (m.index === 1 && ctx.chaseTarget && ctx.chaseTarget.escaped) {
-          // handled below
-        } else {
+        if (!(m.index === 1 && ctx.chaseTarget && ctx.chaseTarget.escaped)) {
           fail('Waktu habis!');
           return;
         }
       }
-      const px = ctx.player.x, pz = ctx.player.z;
-      if (m.index === 0) {
-        if (dist2(px, pz, city.casino.x, city.casino.z) < 100) {
-          hooks.onMessage('Paket diserahkan. Benny: "Bagus. Ada kerjaan lagi buatmu."');
-          complete();
-        }
-      } else if (m.index === 1) {
-        const target = ctx.chaseTarget;
-        if (!target) { complete(); return; }
-        if (target.escaped) {
-          hooks.onMessage('Tono lolos... Mara: "Sial. Kita coba lagi lain kali."');
-          ctx.removeChaseTarget();
-          hideMarker();
-          m.index++;
-          m.phase = 'idle';
-          setTimeout(() => start(m.index), 1200);
-          return;
-        }
-        const d = Math.hypot(px - target.x, pz - target.z);
+      // chase proximity timer lives here so the STEPS table stays pure
+      if (m.index === 1 && ctx.chaseTarget && !ctx.chaseTarget.escaped) {
+        const d = Math.hypot(ctx.player.x - ctx.chaseTarget.x, ctx.player.z - ctx.chaseTarget.z);
         if (d < 8) {
           m.chaseTime += dt;
           if (m.chaseTime > 3) {
             hooks.onMessage('Tono tertangkap! Uang kembali ke tangan Mara.');
             ctx.removeChaseTarget();
             complete();
+            return;
           }
         } else {
           m.chaseTime = Math.max(0, m.chaseTime - dt * 0.5);
         }
-        if (target) setMarker(target.x, target.z);
-      } else if (m.index === 2) {
-        if (ctx.police.state.wanted === 0) {
-          hooks.onMessage('Polisi kehilangan jejakmu. Mara: "Bersih. Lanjutkan."');
-          complete();
-        }
-      } else if (m.index === 3) {
-        if (!m.thugsSpawned) {
-          m.thugsSpawned = true;
-          hooks.spawnThugs({ x: city.casino.x, z: city.casino.z }, 4);
-          hooks.onMessage('Penjaga kasino menghadang! Kalahkan mereka.');
-        }
-        if (m.thugsLeft <= 0 && m.thugsSpawned && ctx.thugsDefeated && !m.vaultTaken) {
-          m.vaultTaken = true;
-          setMarker(city.casino.x + 12, city.casino.z + 8);
-          hooks.onObjective('Ambil uang brankas di Casino Royale');
-          hooks.onMessage('Kasino bersih. Ambil uang brankasnya.');
-        } else if (m.vaultTaken && dist2(px, pz, city.casino.x + 12, city.casino.z + 8) < 36) {
-          hooks.onMessage('Uang brankas di tangan. Benny: "Cantik. Sekarang hilang."');
-          complete();
-        }
-      } else if (m.index === 4) {
-        if (dist2(px, pz, city.garage.x, city.garage.z) < 120) {
-          hooks.onMessage('Daz sampai di garasi Benny. Semua polisi kehilangan jejak.');
-          ctx.police.clearWanted();
-          complete();
-        }
       }
+      const step = STEPS[m.index];
+      if (step) step(ctx);
     },
     onThugDown() {
       m.thugsLeft = Math.max(0, m.thugsLeft - 1);

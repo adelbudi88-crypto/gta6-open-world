@@ -2,7 +2,9 @@
 // Grid of roads, instanced buildings with lit windows, park, plaza tower,
 // marina strip, lamps and palms, plus the neon casino strip, Benny's
 // garage, wet-road puddles and a low orange sun. No external assets.
-// v2: dusk mood, named districts, neon signs, casino + garage landmarks.
+// v2.1: same layout, districts and landmarks as v2 (the seeded RNG calls
+// run in the same order, so the city renders identically), built through
+// small plane/box helpers instead of inline mesh literals.
 import * as THREE from 'three';
 import { clamp, nearestPlace } from './rng.js';
 
@@ -27,7 +29,8 @@ export const DISTRICTS = [
 // Canvas texture: facade with a window grid (most windows lit warm at dusk).
 function facadeTexture(rng) {
   const c = document.createElement('canvas');
-  c.width = 128; c.height = 256;
+  c.width = 128;
+  c.height = 256;
   const g = c.getContext('2d');
   g.fillStyle = '#ffffff';
   g.fillRect(0, 0, 128, 256);
@@ -47,7 +50,8 @@ function facadeTexture(rng) {
 // rotY turns the face: -PI/2 faces west, PI/2 east, 0 south, PI north.
 function neonSign(scene, text, colorHex, x, y, z, w, h, rotY = -Math.PI / 2) {
   const c = document.createElement('canvas');
-  c.width = 512; c.height = 128;
+  c.width = 512;
+  c.height = 128;
   const g = c.getContext('2d');
   g.clearRect(0, 0, 512, 128);
   const css = '#' + colorHex.toString(16).padStart(6, '0');
@@ -73,36 +77,35 @@ function neonSign(scene, text, colorHex, x, y, z, w, h, rotY = -Math.PI / 2) {
   return mesh;
 }
 
+// A flat ground plane (rotated -90° on X) at height y.
+function groundPlane(w, d, mat, x, y, z) {
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(x, y, z);
+  return mesh;
+}
+
+// An upright box sitting on the ground (origin at its base is handled by
+// the caller when needed).
+function groundBox(w, h, d, mat, x, z, y = 0) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  mesh.position.set(x, y, z);
+  return mesh;
+}
+
 export function buildCity(scene, rng) {
   const colliders = [];
-  const dummy = new THREE.Object3D();
-  const color = new THREE.Color();
+  const placer = new THREE.Object3D();
+  const tint = new THREE.Color();
 
   // --- ground (dusk grass, darker than the midday v1) ---
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(CITY_R * 2 + 260, CITY_R * 2 + 260),
-    new THREE.MeshLambertMaterial({ color: 0x5a7a4a }),
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.set(0, -0.05, 0);
+  const ground = groundPlane(CITY_R * 2 + 260, CITY_R * 2 + 260, new THREE.MeshLambertMaterial({ color: 0x5a7a4a }), 0, -0.05, 0);
   ground.receiveShadow = true;
   scene.add(ground);
 
   // --- sea strip on the north edge (z < -CITY_R) ---
-  const sea = new THREE.Mesh(
-    new THREE.PlaneGeometry(CITY_R * 2 + 260, 130),
-    new THREE.MeshLambertMaterial({ color: 0x1e4a6a }),
-  );
-  sea.rotation.x = -Math.PI / 2;
-  sea.position.set(0, 0.02, -CITY_R - 65);
-  scene.add(sea);
-  const sand = new THREE.Mesh(
-    new THREE.PlaneGeometry(CITY_R * 2 + 260, 14),
-    new THREE.MeshLambertMaterial({ color: 0xc8b088 }),
-  );
-  sand.rotation.x = -Math.PI / 2;
-  sand.position.set(0, 0.03, -CITY_R - 2);
-  scene.add(sand);
+  scene.add(groundPlane(CITY_R * 2 + 260, 130, new THREE.MeshLambertMaterial({ color: 0x1e4a6a }), 0, 0.02, -CITY_R - 65));
+  scene.add(groundPlane(CITY_R * 2 + 260, 14, new THREE.MeshLambertMaterial({ color: 0xc8b088 }), 0, 0.03, -CITY_R - 2));
 
   // --- low orange sun + glow on the western horizon ---
   const sunDisc = new THREE.Mesh(
@@ -113,7 +116,8 @@ export function buildCity(scene, rng) {
   sunDisc.lookAt(0, 20, 0);
   scene.add(sunDisc);
   const glowC = document.createElement('canvas');
-  glowC.width = 256; glowC.height = 256;
+  glowC.width = 256;
+  glowC.height = 256;
   const gg = glowC.getContext('2d');
   const grad = gg.createRadialGradient(128, 128, 8, 128, 128, 128);
   grad.addColorStop(0, 'rgba(255, 170, 90, 0.85)');
@@ -130,28 +134,19 @@ export function buildCity(scene, rng) {
   // --- roads + sidewalks (wet asphalt at dusk, light enough to read) ---
   const roadMat = new THREE.MeshLambertMaterial({ color: 0x2e323c });
   const walkMat = new THREE.MeshLambertMaterial({ color: 0x9a9088 });
-  const roadsX = [], roadsZ = [];
+  const roadsX = [];
+  const roadsZ = [];
   for (let i = -GRID_N; i <= GRID_N; i++) {
     roadsX.push(i * PITCH);
     roadsZ.push(i * PITCH);
-    const rx = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_W, CITY_R * 2 + 8), roadMat);
-    rx.rotation.x = -Math.PI / 2;
-    rx.position.set(i * PITCH, 0.05, 0);
+    const rx = groundPlane(ROAD_W, CITY_R * 2 + 8, roadMat, i * PITCH, 0.05, 0);
     rx.receiveShadow = true;
     scene.add(rx);
-    const rz = new THREE.Mesh(new THREE.PlaneGeometry(CITY_R * 2 + 8, ROAD_W), roadMat);
-    rz.rotation.x = -Math.PI / 2;
-    rz.position.set(0, 0.05, i * PITCH);
+    const rz = groundPlane(CITY_R * 2 + 8, ROAD_W, roadMat, 0, 0.05, i * PITCH);
     rz.receiveShadow = true;
     scene.add(rz);
-    const wx = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_W + 8, CITY_R * 2 + 8), walkMat);
-    wx.rotation.x = -Math.PI / 2;
-    wx.position.set(i * PITCH, 0.0, 0);
-    scene.add(wx);
-    const wz = new THREE.Mesh(new THREE.PlaneGeometry(CITY_R * 2 + 8, ROAD_W + 8), walkMat);
-    wz.rotation.x = -Math.PI / 2;
-    wz.position.set(0, 0.0, i * PITCH);
-    scene.add(wz);
+    scene.add(groundPlane(ROAD_W + 8, CITY_R * 2 + 8, walkMat, i * PITCH, 0.0, 0));
+    scene.add(groundPlane(CITY_R * 2 + 8, ROAD_W + 8, walkMat, 0, 0.0, i * PITCH));
   }
 
   // --- rain puddles on the roads (cheap wet-road shimmer) ---
@@ -160,10 +155,8 @@ export function buildCity(scene, rng) {
     const onX = rng.chance(0.5);
     const road = rng.pick(onX ? roadsX : roadsZ);
     const along = rng.range(-CITY_R + 20, CITY_R - 20);
-    const puddle = new THREE.Mesh(new THREE.PlaneGeometry(rng.range(4, 9), rng.range(2.5, 4)), puddleMat);
-    puddle.rotation.x = -Math.PI / 2;
+    const puddle = groundPlane(rng.range(4, 9), rng.range(2.5, 4), puddleMat, onX ? road : along, 0.07, onX ? along : road);
     puddle.rotation.z = rng.range(0, Math.PI);
-    puddle.position.set(onX ? road : along, 0.07, onX ? along : road);
     scene.add(puddle);
   }
 
@@ -176,15 +169,15 @@ export function buildCity(scene, rng) {
   for (let i = -GRID_N; i <= GRID_N; i++) {
     for (let k = -10; k <= 10; k++) {
       const z = k * (PITCH / 2) + PITCH / 4;
-      dummy.position.set(i * PITCH, 0.03, z);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      dashes.setMatrixAt(di++, dummy.matrix);
-      dummy.position.set(z, 0.03, i * PITCH);
-      dummy.rotation.set(0, Math.PI / 2, 0);
-      dummy.updateMatrix();
-      dashes.setMatrixAt(di++, dummy.matrix);
+      placer.position.set(i * PITCH, 0.03, z);
+      placer.rotation.set(0, 0, 0);
+      placer.scale.set(1, 1, 1);
+      placer.updateMatrix();
+      dashes.setMatrixAt(di++, placer.matrix);
+      placer.position.set(z, 0.03, i * PITCH);
+      placer.rotation.set(0, Math.PI / 2, 0);
+      placer.updateMatrix();
+      dashes.setMatrixAt(di++, placer.matrix);
     }
   }
   dashes.count = di;
@@ -213,9 +206,11 @@ export function buildCity(scene, rng) {
       if (isSpecial(bx, bz)) continue;
       const n = rng.int(1, 3);
       for (let k = 0; k < n; k++) {
-        const w = rng.range(16, 26), d = rng.range(16, 26);
+        const w = rng.range(16, 26);
+        const d = rng.range(16, 26);
         const h = rng.range(9, 40) * (rng.chance(0.14) ? 1.8 : 1);
-        const ox = rng.range(-14, 14), oz = rng.range(-14, 14);
+        const ox = rng.range(-14, 14);
+        const oz = rng.range(-14, 14);
         const x = clamp(cx + ox, cx - 22, cx + 22);
         const z = clamp(cz + oz, cz - 22, cz + 22);
         placements.push({ x, z, w, d, h, c: rng.pick(FACADES), roof: rng.pick(ROOFS) });
@@ -226,17 +221,17 @@ export function buildCity(scene, rng) {
   const buildings = new THREE.InstancedMesh(bGeo, bMat, placements.length);
   const roofs = new THREE.InstancedMesh(bGeo, roofMat, placements.length);
   placements.forEach((p, i) => {
-    dummy.position.set(p.x, 0, p.z);
-    dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(p.w, p.h, p.d);
-    dummy.updateMatrix();
-    buildings.setMatrixAt(i, dummy.matrix);
-    buildings.setColorAt(i, color.setHex(p.c));
-    dummy.position.set(p.x, p.h, p.z);
-    dummy.scale.set(p.w * 0.86, 1.2, p.d * 0.86);
-    dummy.updateMatrix();
-    roofs.setMatrixAt(i, dummy.matrix);
-    roofs.setColorAt(i, color.setHex(p.roof));
+    placer.position.set(p.x, 0, p.z);
+    placer.rotation.set(0, 0, 0);
+    placer.scale.set(p.w, p.h, p.d);
+    placer.updateMatrix();
+    buildings.setMatrixAt(i, placer.matrix);
+    buildings.setColorAt(i, tint.setHex(p.c));
+    placer.position.set(p.x, p.h, p.z);
+    placer.scale.set(p.w * 0.86, 1.2, p.d * 0.86);
+    placer.updateMatrix();
+    roofs.setMatrixAt(i, placer.matrix);
+    roofs.setColorAt(i, tint.setHex(p.roof));
   });
   buildings.castShadow = true;
   buildings.receiveShadow = true;
@@ -250,11 +245,7 @@ export function buildCity(scene, rng) {
     { x: 195, z: 39, w: 28, d: 24, h: 48, tint: 0x8a3a3a, sign: 'NEON BAR', signColor: 0xffe23a, signY: 28 },
   ];
   for (const t of casinoTowers) {
-    const tower = new THREE.Mesh(
-      new THREE.BoxGeometry(t.w, t.h, t.d),
-      new THREE.MeshLambertMaterial({ map: tex, color: t.tint }),
-    );
-    tower.position.set(t.x, 0, t.z);
+    const tower = groundBox(t.w, t.h, t.d, new THREE.MeshLambertMaterial({ map: tex, color: t.tint }), t.x, t.z);
     tower.castShadow = true;
     scene.add(tower);
     colliders.push({ x: t.x, z: t.z, hx: t.w / 2, hz: t.d / 2 });
@@ -265,36 +256,21 @@ export function buildCity(scene, rng) {
   neonSign(scene, 'TACOS 24H', 0xff4040, 78 + 7, 8, -156, 14, 3.5);
 
   // --- Benny's garage: low wide building + neon sign + repair zone ---
-  const garageX = -117, garageZ = 195;
-  const garage = new THREE.Mesh(
-    new THREE.BoxGeometry(34, 9, 22),
-    new THREE.MeshLambertMaterial({ color: 0x4a5a6a }),
-  );
-  garage.position.set(garageX, 0, garageZ);
+  const garageX = -117;
+  const garageZ = 195;
+  const garage = groundBox(34, 9, 22, new THREE.MeshLambertMaterial({ color: 0x4a5a6a }), garageX, garageZ);
   garage.castShadow = true;
   scene.add(garage);
   colliders.push({ x: garageX, z: garageZ, hx: 17, hz: 11 });
-  const garageDoor = new THREE.Mesh(
-    new THREE.BoxGeometry(20, 6, 0.4),
-    new THREE.MeshLambertMaterial({ color: 0x2a3442, emissive: 0x111a22 }),
-  );
-  garageDoor.position.set(garageX, 3, garageZ - 11.2);
+  const garageDoor = groundBox(20, 6, 0.4, new THREE.MeshLambertMaterial({ color: 0x2a3442, emissive: 0x111a22 }), garageX, garageZ - 11.2, 3);
   scene.add(garageDoor);
   neonSign(scene, "BENNY'S GARAGE", 0x3aff7a, garageX, 12, garageZ - 11.4, 30, 7, Math.PI);
 
   // --- plaza tower (landmark "Torre Azul") ---
-  const tower = new THREE.Mesh(
-    new THREE.BoxGeometry(20, 86, 20),
-    new THREE.MeshLambertMaterial({ map: tex, color: 0x7fa8d8 }),
-  );
-  tower.position.set(PITCH / 2, 0, PITCH / 2);
+  const tower = groundBox(20, 86, 20, new THREE.MeshLambertMaterial({ map: tex, color: 0x7fa8d8 }), PITCH / 2, PITCH / 2);
   tower.castShadow = true;
   scene.add(tower);
-  const towerTop = new THREE.Mesh(
-    new THREE.BoxGeometry(10, 8, 10),
-    new THREE.MeshLambertMaterial({ color: 0x2a4a6a, emissive: 0x446688 }),
-  );
-  towerTop.position.set(PITCH / 2, 86, PITCH / 2);
+  const towerTop = groundBox(10, 8, 10, new THREE.MeshLambertMaterial({ color: 0x2a4a6a, emissive: 0x446688 }), PITCH / 2, PITCH / 2, 86);
   scene.add(towerTop);
   colliders.push({ x: PITCH / 2, z: PITCH / 2, hx: 10, hz: 10 });
   // plaza fountain
@@ -320,7 +296,8 @@ export function buildCity(scene, rng) {
   // --- trees (instanced trunk + canopy), palms along the sea ---
   const treeSpots = [];
   for (let i = 0; i < 46; i++) {
-    const bx = rng.int(-GRID_N, GRID_N - 1), bz = rng.int(-GRID_N, GRID_N - 1);
+    const bx = rng.int(-GRID_N, GRID_N - 1);
+    const bz = rng.int(-GRID_N, GRID_N - 1);
     if (bx === parkBlock.bx && bz === parkBlock.bz) {
       treeSpots.push({ x: parkCx + rng.range(-26, 26), z: parkCz + rng.range(-26, 26), s: rng.range(0.9, 1.5) });
     } else if (rng.chance(0.5)) {
@@ -341,16 +318,16 @@ export function buildCity(scene, rng) {
   canGeo.translate(0, 0.5, 0);
   const canopies = new THREE.InstancedMesh(canGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), treeSpots.length);
   treeSpots.forEach((t, i) => {
-    dummy.position.set(t.x, 0, t.z);
-    dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(t.s, t.s, t.s);
-    dummy.updateMatrix();
-    trunks.setMatrixAt(i, dummy.matrix);
-    dummy.position.set(t.x, 3 * t.s, t.z);
-    dummy.scale.set(4.4 * t.s, 3.4 * t.s, 4.4 * t.s);
-    dummy.updateMatrix();
-    canopies.setMatrixAt(i, dummy.matrix);
-    canopies.setColorAt(i, color.setHex(t.palm ? 0x3a9a5a : rng.pick([0x3f8a3f, 0x5a9a3a, 0x2f7a4a])));
+    placer.position.set(t.x, 0, t.z);
+    placer.rotation.set(0, 0, 0);
+    placer.scale.set(t.s, t.s, t.s);
+    placer.updateMatrix();
+    trunks.setMatrixAt(i, placer.matrix);
+    placer.position.set(t.x, 3 * t.s, t.z);
+    placer.scale.set(4.4 * t.s, 3.4 * t.s, 4.4 * t.s);
+    placer.updateMatrix();
+    canopies.setMatrixAt(i, placer.matrix);
+    canopies.setColorAt(i, tint.setHex(t.palm ? 0x3a9a5a : rng.pick([0x3f8a3f, 0x5a9a3a, 0x2f7a4a])));
     colliders.push({ x: t.x, z: t.z, hx: 0.5, hz: 0.5 });
   });
   trunks.castShadow = true;
@@ -372,14 +349,14 @@ export function buildCity(scene, rng) {
   const headGeo = new THREE.BoxGeometry(1.4, 0.3, 0.5);
   const heads = new THREE.InstancedMesh(headGeo, new THREE.MeshLambertMaterial({ color: 0xffe9a8, emissive: 0xaa7711 }), lampSpots.length);
   lampSpots.forEach((l, i) => {
-    dummy.position.set(l.x, 0, l.z);
-    dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(1, 1, 1);
-    dummy.updateMatrix();
-    poles.setMatrixAt(i, dummy.matrix);
-    dummy.position.set(l.x, 6.1, l.z);
-    dummy.updateMatrix();
-    heads.setMatrixAt(i, dummy.matrix);
+    placer.position.set(l.x, 0, l.z);
+    placer.rotation.set(0, 0, 0);
+    placer.scale.set(1, 1, 1);
+    placer.updateMatrix();
+    poles.setMatrixAt(i, placer.matrix);
+    placer.position.set(l.x, 6.1, l.z);
+    placer.updateMatrix();
+    heads.setMatrixAt(i, placer.matrix);
   });
   scene.add(poles);
   scene.add(heads);

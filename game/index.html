@@ -9,11 +9,13 @@
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .panel { position: fixed; z-index: 5; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.85); pointer-events: none; }
-  /* top-left: district card */
+
+  /* --- top-left: district card --- */
   #district { top: 14px; left: 16px; background: rgba(0,0,0,.6); border-left: 4px solid #ffd23a; padding: 8px 14px; border-radius: 3px; }
   #district-name { font-size: 19px; font-weight: 800; letter-spacing: 1px; }
   #district-flavor { font-size: 12px; color: #cfe8ff; letter-spacing: .5px; }
-  /* top-center: mission banner */
+
+  /* --- top-center: mission banner --- */
   #objective { top: 14px; left: 50%; transform: translateX(-50%); text-align: center; display: none; max-width: 620px; }
   #objective.show { display: block; }
   #mission-line { display: flex; gap: 10px; align-items: baseline; justify-content: center; }
@@ -22,7 +24,8 @@
   #mission-count { font-size: 13px; font-weight: 700; color: #fff; background: rgba(0,0,0,.55); padding: 2px 8px; border-radius: 3px; }
   #objective-text { font-size: 17px; font-weight: 600; background: rgba(0,0,0,.6); padding: 6px 14px; border-radius: 4px; margin-top: 4px; }
   #mission-timer { font-size: 15px; font-weight: 800; margin-top: 4px; }
-  /* top-right: stats panel */
+
+  /* --- top-right: stats panel --- */
   #stats { top: 14px; right: 16px; text-align: right; background: rgba(0,0,0,.55); padding: 10px 14px; border-radius: 4px; min-width: 230px; }
   #clock-row { display: flex; gap: 10px; justify-content: flex-end; align-items: baseline; }
   #clock { font-size: 24px; font-weight: 800; }
@@ -40,9 +43,11 @@
   .bar-num { font-size: 13px; font-weight: 700; width: 26px; text-align: left; }
   #respect-row { margin-top: 6px; font-size: 13px; font-weight: 700; color: #ffb45a; }
   #respect-text { font-size: 15px; }
-  /* bottom-left: round minimap */
+
+  /* --- bottom-left: round minimap --- */
   #minimap { bottom: 16px; left: 16px; width: 200px; height: 200px; border-radius: 50%; }
-  /* bottom-right: circular speedometer */
+
+  /* --- bottom-right: circular speedometer --- */
   #speedo { bottom: 16px; right: 20px; width: 200px; height: 200px; text-align: center; }
   #speedo svg { position: absolute; inset: 0; transform: rotate(135deg); }
   #speedo-ring { fill: none; stroke: #ffd23a; stroke-width: 9; stroke-linecap: round; stroke-dasharray: 552.92; stroke-dashoffset: 552.92; }
@@ -54,7 +59,8 @@
   #car-name { font-size: 13px; font-weight: 700; color: #fff; }
   #car-health-wrap { width: 120px; height: 8px; background: rgba(0,0,0,.6); border: 1px solid rgba(255,255,255,.5); border-radius: 3px; overflow: hidden; margin-top: 5px; }
   #car-health-fill { height: 100%; width: 100%; }
-  /* bottom-center: radio + messages */
+
+  /* --- bottom-center: radio + messages --- */
   #radio { bottom: 14px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); padding: 7px 18px; border-radius: 4px; text-align: center; }
   #radio-name { font-size: 15px; font-weight: 800; color: #7dd8ff; letter-spacing: 1px; }
   #radio-freq { font-size: 12px; color: #cfe8ff; }
@@ -63,15 +69,21 @@
   #garage-hint { bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 15px; font-weight: 700; color: #3aff7a; background: rgba(0,0,0,.65); padding: 7px 16px; border-radius: 4px; opacity: 0; transition: opacity .3s; }
   #garage-hint.show { opacity: 1; }
   #help { bottom: 62px; left: 50%; transform: translateX(-50%); font-size: 12px; color: rgba(255,255,255,.85); background: rgba(0,0,0,.45); padding: 5px 12px; border-radius: 4px; display: none; white-space: nowrap; }
+
+  /* --- crosshair --- */
   #crosshair { position: fixed; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; z-index: 6; display: none; pointer-events: none; }
   #crosshair::before, #crosshair::after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 3px #000; }
   #crosshair::before { left: 4px; top: 0; width: 2px; height: 10px; }
   #crosshair::after { left: 0; top: 4px; width: 10px; height: 2px; }
-  /* chapter banner */
-  #chapter { position: fixed; left: 50%; top: 34%; transform: translate(-50%, -50%); z-index: 7; text-align: center; color: #fff; pointer-events: none; opacity: 0; transition: opacity .4s; text-shadow: 0 2px 12px rgba(0,0,0,.9); }
+
+  /* --- chapter banner: raised to 30% in v2.1 so a police light bar can
+         never cross the title in the on-foot screenshots --- */
+  #chapter { position: fixed; left: 50%; top: 30%; transform: translate(-50%, -50%); z-index: 7; text-align: center; color: #fff; pointer-events: none; opacity: 0; transition: opacity .4s; text-shadow: 0 2px 12px rgba(0,0,0,.9); }
   #chapter.show { opacity: 1; }
   #chapter-title { font-size: 30px; font-weight: 800; letter-spacing: 5px; color: #ffd23a; }
   #chapter-sub { font-size: 40px; font-weight: 800; letter-spacing: 2px; }
+
+  /* --- full screens (start / pause / end) --- */
   .screen { position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; flex-direction: column; text-align: center; color: #fff; background: linear-gradient(160deg, rgba(20,8,32,.94), rgba(60,20,50,.9)); }
   .screen.show { display: flex; }
   .screen h1 { font-size: 64px; margin: 0; letter-spacing: 4px; color: #ffd23a; text-shadow: 0 4px 24px rgba(0,0,0,.6); }
@@ -149,7 +161,7 @@
   <h1>PORTO AZUL II</h1>
   <h2>Daz kembali. Lima chapter cerita bersama Mara dan Benny: antar paket, kejar pengkhianat, kabur dari razia helikopter, rampok brankas kasino — semua di senja neon Porto Azul.</h2>
   <div class="controls">
-    <b>Fitur:</b> 5 story mission + timer · wanted 1–5 + helikopter polisi · ekonomi + upgrade garasi Benny ·<br>
+    <b>Fitur:</b> 5 story mission + timer + payout di banner · wanted 1–5 + helikopter polisi · ekonomi + upgrade garasi Benny ·<br>
     senjata HORNET SMG + armour · respect level · 4 stasiun radio · minimap + rute misi · save otomatis<br><br>
     <b>Kontrol:</b> WASD jalan / nyetir &nbsp;·&nbsp; Mouse kamera &nbsp;·&nbsp; E masuk / keluar mobil<br>
     F pukul &nbsp;·&nbsp; Klik kiri tembak &nbsp;·&nbsp; Q isi ulang &nbsp;·&nbsp; C ganti radio &nbsp;·&nbsp; G beli upgrade di garasi<br>

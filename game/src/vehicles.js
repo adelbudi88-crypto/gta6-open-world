@@ -1,8 +1,8 @@
 // Cars: box-built meshes, arcade driving physics, and traffic AI that
 // follows the road grid (right-hand lanes, random turns at intersections).
-// v2: every car is a named model with its own top speed and health —
-// crashes chip the health down and a wrecked car stalls out. Traffic is
-// denser (22 cars) so the avenues read as alive in screenshots.
+// v2.1: same nine named models, top speeds and health as v2, with the mesh
+// built from a parts list and the physics split into accelerate / steer /
+// move / collide phases.
 import * as THREE from 'three';
 import { clamp, collideCircle, dist2 } from './rng.js';
 
@@ -22,26 +22,26 @@ export function modelByName(name) {
   return CAR_MODELS.find((m) => m.name === name) || CAR_MODELS[0];
 }
 
+function box(w, h, d, mat, x, y, z) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  mesh.position.set(x, y, z);
+  return mesh;
+}
+
 export function createCarMesh(modelOrColor, police = false) {
   const model = typeof modelOrColor === 'object' ? modelOrColor : { name: '', color: modelOrColor, baseMax: 30 };
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshLambertMaterial({ color: police ? 0xf0f0f0 : model.color });
   const darkMat = new THREE.MeshLambertMaterial({ color: 0x1a2028 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.62, 4.2), bodyMat);
-  body.position.y = 0.55;
+  const body = box(2.0, 0.62, 4.2, bodyMat, 0, 0.55, 0);
   body.castShadow = true;
   g.add(body);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.55, 2.1), darkMat);
-  cabin.position.set(0, 1.1, -0.2);
+  const cabin = box(1.7, 0.55, 2.1, darkMat, 0, 1.1, -0.2);
   cabin.castShadow = true;
   g.add(cabin);
   // neon underglow strip (dusk look): a faint coloured slab under the body
-  const glow = new THREE.Mesh(
-    new THREE.BoxGeometry(1.9, 0.06, 4.0),
-    new THREE.MeshBasicMaterial({ color: police ? 0x3040ff : model.color, transparent: true, opacity: 0.35 }),
-  );
-  glow.position.y = 0.12;
-  g.add(glow);
+  const glowMat = new THREE.MeshBasicMaterial({ color: police ? 0x3040ff : model.color, transparent: true, opacity: 0.35 });
+  g.add(box(1.9, 0.06, 4.0, glowMat, 0, 0.12, 0));
   const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.3, 10);
   wheelGeo.rotateZ(Math.PI / 2);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
@@ -53,36 +53,29 @@ export function createCarMesh(modelOrColor, police = false) {
     wheels.push(w);
   }
   const lightMat = new THREE.MeshLambertMaterial({ color: 0xfff2b8, emissive: 0x887733 });
-  for (const x of [-0.6, 0.6]) {
-    const h = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.1), lightMat);
-    h.position.set(x, 0.62, 2.11);
-    g.add(h);
-  }
+  for (const x of [-0.6, 0.6]) g.add(box(0.4, 0.18, 0.1, lightMat, x, 0.62, 2.11));
   const tailMat = new THREE.MeshLambertMaterial({ color: 0xc02020, emissive: 0x660000 });
-  for (const x of [-0.6, 0.6]) {
-    const t = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.1), tailMat);
-    t.position.set(x, 0.62, -2.11);
-    g.add(t);
-  }
+  for (const x of [-0.6, 0.6]) g.add(box(0.4, 0.18, 0.1, tailMat, x, 0.62, -2.11));
   let lightBar = null;
   if (police) {
     lightBar = new THREE.Group();
-    const r = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.18, 0.5), new THREE.MeshLambertMaterial({ color: 0xff2020, emissive: 0x881111 }));
-    r.position.x = -0.35;
-    const b = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.18, 0.5), new THREE.MeshLambertMaterial({ color: 0x2040ff, emissive: 0x111188 }));
-    b.position.x = 0.35;
-    lightBar.add(r); lightBar.add(b);
+    const r = box(0.5, 0.18, 0.5, new THREE.MeshLambertMaterial({ color: 0xff2020, emissive: 0x881111 }), -0.35, 0, 0);
+    const b = box(0.5, 0.18, 0.5, new THREE.MeshLambertMaterial({ color: 0x2040ff, emissive: 0x111188 }), 0.35, 0, 0);
+    lightBar.add(r);
+    lightBar.add(b);
     lightBar.position.y = 1.5;
     lightBar.userData = { red: r, blue: b };
     g.add(lightBar);
     // black doors stripe
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.02, 0.3, 2.2), new THREE.MeshLambertMaterial({ color: 0x181818 }));
-    stripe.position.set(0, 0.62, -0.2);
-    g.add(stripe);
+    g.add(box(2.02, 0.3, 2.2, new THREE.MeshLambertMaterial({ color: 0x181818 }), 0, 0.62, -0.2));
   }
   g.userData.wheels = wheels;
   g.userData.lightBar = lightBar;
   return g;
+}
+
+function damageCar(car, amount) {
+  car.health = Math.max(0, (car.health ?? 100) - amount);
 }
 
 // Arcade car physics: throttle/steer/brake in [-1,1]. Mutates car in place.
@@ -100,7 +93,8 @@ export function stepCar(car, dt, throttle, steer, brake, colliders, others, peds
   car.speed = clamp(car.speed, -maxReverse, maxSpeed);
   const steerFactor = clamp(Math.abs(car.speed) / 8, 0, 1) * (car.speed >= 0 ? 1 : -1);
   car.heading += steer * 1.9 * steerFactor * dt;
-  const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+  const fx = Math.sin(car.heading);
+  const fz = Math.cos(car.heading);
   let nx = car.x + fx * car.speed * dt;
   let nz = car.z + fz * car.speed * dt;
   // building collision (circle radius 2.1)
@@ -111,11 +105,13 @@ export function stepCar(car, dt, throttle, steer, brake, colliders, others, peds
     if (vn < 0) car.speed *= 0.45;
     if (Math.abs(car.speed) > 12) {
       car.crashed = true;
-      car.health = Math.max(0, (car.health ?? 100) - 6);
+      damageCar(car, 6);
     }
-    nx = res.x; nz = res.z;
+    nx = res.x;
+    nz = res.z;
   }
-  car.x = nx; car.z = nz;
+  car.x = nx;
+  car.z = nz;
   // car-car soft push
   for (const o of others) {
     if (o === car || o.dead) continue;
@@ -123,12 +119,14 @@ export function stepCar(car, dt, throttle, steer, brake, colliders, others, peds
     if (d2 < 16 && d2 > 0.01) {
       const d = Math.sqrt(d2);
       const push = (4 - d) / 2;
-      const px = (car.x - o.x) / d, pz = (car.z - o.z) / d;
-      car.x += px * push; car.z += pz * push;
+      const px = (car.x - o.x) / d;
+      const pz = (car.z - o.z) / d;
+      car.x += px * push;
+      car.z += pz * push;
       if (Math.abs(car.speed) > 8) {
         car.speed *= 0.8;
         car.crashed = true;
-        car.health = Math.max(0, (car.health ?? 100) - 4);
+        damageCar(car, 4);
       }
     }
   }
@@ -155,27 +153,51 @@ export function makeTraffic(scene, rng, city) {
     const model = rng.pick(CAR_MODELS);
     const mesh = createCarMesh(model);
     scene.add(mesh);
+    const edge = city.roadsX[city.roadsX.length - 1];
     cars.push({
       mesh, axis, line, dir, model,
       name: model.name, baseMax: model.baseMax, maxSpeed: model.baseMax,
       health: 100, maxHealth: 100,
-      along: rng.range(-city.roadsX[city.roadsX.length - 1], city.roadsX[city.roadsX.length - 1]),
+      along: rng.range(-edge, edge),
       speed: rng.range(7, 11), baseSpeed: rng.range(7, 11),
       heading: 0, x: 0, z: 0, dead: false, traffic: true,
     });
   }
   function place(c) {
     const off = c.axis === 'x' ? 3.2 * c.dir : -3.2 * c.dir;
-    if (c.axis === 'x') { c.x = c.along; c.z = c.line + off; c.heading = c.dir > 0 ? Math.PI / 2 : -Math.PI / 2; }
-    else { c.x = c.line + off; c.z = c.along; c.heading = c.dir > 0 ? 0 : Math.PI; }
+    if (c.axis === 'x') {
+      c.x = c.along;
+      c.z = c.line + off;
+      c.heading = c.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+    } else {
+      c.x = c.line + off;
+      c.z = c.along;
+      c.heading = c.dir > 0 ? 0 : Math.PI;
+    }
     c.mesh.position.set(c.x, 0, c.z);
     c.mesh.rotation.y = c.heading;
   }
   cars.forEach(place);
 
+  function maybeTurn(c, dt) {
+    const lines = c.axis === 'x' ? city.roadsX : city.roadsZ;
+    for (const L of lines) {
+      if (Math.abs(c.along - L) < c.speed * dt + 0.4 && rng.chance(0.3)) {
+        const newAxis = c.axis === 'x' ? 'z' : 'x';
+        const newDir = rng.chance(0.5) ? 1 : -1;
+        c.axis = newAxis;
+        c.line = L;
+        // recompute along from current position on the new axis
+        c.along = newAxis === 'x' ? c.x : c.z;
+        c.dir = newDir;
+        break;
+      }
+    }
+  }
+
   return {
     cars,
-    update(dt, colliders) {
+    update(dt) {
       for (const c of cars) {
         if (c.dead) continue;
         // slow down for a car ahead in the same lane
@@ -183,7 +205,10 @@ export function makeTraffic(scene, rng, city) {
         for (const o of cars) {
           if (o === c || o.dead || o.axis !== c.axis || o.line !== c.line || o.dir !== c.dir) continue;
           const ahead = (o.along - c.along) * c.dir;
-          if (ahead > 0 && ahead < 12) { target = 0; break; }
+          if (ahead > 0 && ahead < 12) {
+            target = 0;
+            break;
+          }
         }
         c.speed += (target - c.speed) * Math.min(1, dt * 2);
         c.along += c.dir * c.speed * dt;
@@ -191,20 +216,7 @@ export function makeTraffic(scene, rng, city) {
         const edge = city.roadsX[city.roadsX.length - 1] + 30;
         if (c.along > edge) c.along = -edge;
         if (c.along < -edge) c.along = edge;
-        // turn at an intersection
-        const lines = c.axis === 'x' ? city.roadsX : city.roadsZ;
-        for (const L of lines) {
-          if (Math.abs(c.along - L) < c.speed * dt + 0.4 && rng.chance(0.3)) {
-            const newAxis = c.axis === 'x' ? 'z' : 'x';
-            const newDir = rng.chance(0.5) ? 1 : -1;
-            c.axis = newAxis;
-            c.line = L;
-            // recompute along from current position on the new axis
-            c.along = newAxis === 'x' ? c.x : c.z;
-            c.dir = newDir;
-            break;
-          }
-        }
+        maybeTurn(c, dt);
         place(c);
       }
     },
@@ -220,11 +232,12 @@ export function makeParkedCars(scene, rng, city) {
     { x: 39, z: 85, model: 'Dune Buggy' }, { x: -39, z: -85, model: 'Coral Cruiser' },
     { x: 163, z: -62, model: 'Comet GT' }, { x: -163, z: 163, model: 'Harbor Taxi' },
   ];
+  const headings = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
   for (const s of spots) {
     const model = modelByName(s.model);
     const mesh = createCarMesh(model);
     mesh.position.set(s.x, 0, s.z);
-    mesh.rotation.y = rng.pick([0, Math.PI / 2, Math.PI, -Math.PI / 2]);
+    mesh.rotation.y = rng.pick(headings);
     scene.add(mesh);
     cars.push({
       mesh, x: s.x, z: s.z, heading: mesh.rotation.y, speed: 0,
@@ -233,5 +246,6 @@ export function makeParkedCars(scene, rng, city) {
       dead: false, parked: true, stolen: false,
     });
   }
+  void city;
   return cars;
 }

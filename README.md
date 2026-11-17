@@ -12,18 +12,18 @@ Daz, a driver for hire in Porto Azul, takes jobs from Mara and Benny across five
 
 ## What is in the game
 
-- **Procedural 3D city at dusk** — grid of roads, instanced buildings with lit windows, a park with a pond, the Torre Azul plaza tower, a marina and beach strip, street lamps and palms, wet-road puddles, a low orange sun, and neon signs: CASINO ROYALE, HOTEL MIRAGE, NEON BAR, BENNY'S GARAGE, MOTEL PALMERA.
+- **Procedural 3D city at dusk** — a grid of roads, instanced buildings with lit windows, a park with a pond, the Torre Azul plaza tower, a marina and beach strip, street lamps and palms, wet-road puddles, a low orange sun, and neon signs: CASINO ROYALE, HOTEL MIRAGE, NEON BAR, BENNY'S GARAGE, MOTEL PALMERA.
 - **Named districts** — Palmline Beach, the Mirage Strip, Torre Plaza, Benny's Yard, the Docks, Palm Court — the HUD always shows where you are and the district's flavor line.
 - **On foot + by car** — third-person walking (WASD + mouse camera), steal parked or traffic cars (E), arcade driving with collisions, handbrake, horn. Nine named car models (Comet GT, Neon Runner, Azul GT Coupe…) with their own top speeds and health — a wrecked car stalls out.
 - **Traffic AI + pedestrians** — 22 cars follow the road grid and turn at intersections; 40 pedestrians stroll the sidewalks, crowd the casino strip, and flee from gunfire, speeding cars, and high wanted levels.
 - **Wanted system (1–5 stars) + police** — patrol cars ram you, foot cops chase you down, and at 4+ stars a police helicopter circles overhead with a searchlight and keeps the heat from cooling off. At 5 stars you are MOST WANTED. Get busted if a cop grabs you on foot, wasted if your health hits zero.
-- **5 chained story chapters** — delivery, car chase, police escape, casino vault job, and the finale vault run, each with a chapter banner, a countdown timer, and a payout ($400–$5,000), plus a beacon marker and a route line on the minimap.
+- **5 chained story chapters** — delivery, car chase, police escape, casino vault job, and the finale vault run. Each chapter has a banner, a countdown timer, a payout shown in the mission banner ($400–$5,000), a beacon marker, and a route line on the minimap.
 - **Economy + garage** — earn cash from missions and takedowns, then spend it at Benny's Garage: engine upgrades (top speed +4 per level) and armour, with slow car repair while parked there.
 - **Combat** — punch (F) and hitscan shooting (click) with tracers, HORNET SMG with magazine + reserve ammo and reload (Q), health + armour bars, respect levels that grow with every job.
 - **Full HUD, every corner** — district top-left, mission banner + timer top-center, cash / wanted / weapon / health / armour / respect top-right, round minimap with route bottom-left, circular speedometer + gear + car name + car health bottom-right, radio bottom-center.
 - **Radio** — four synthesized stations (SOL FM, NEON 98.5, PALM RADIO, STATIC), switch with C; engine hum, two-tone siren, gunshots, and a bassline loop. No audio files.
 - **Start screen, save, pause, restart, mute** — progress autosaves to localStorage every 30 seconds; P pauses, R restarts, M mutes.
-- **Deterministic screenshots** — `?shot=drive|foot|chase|mission&seed=1` stages each scene mid-action for reproducible captures.
+- **Deterministic screenshots** — `?shot=drive|foot|chase|mission&seed=1` stages each scene mid-action for reproducible captures; the four shots are listed in `shots.json`.
 
 ## Controls
 
@@ -58,7 +58,7 @@ Then open http://localhost:8080. No build step, no network requests — the game
 3. `3-chase.jpg` — Chapter 3, MOST WANTED 5 stars, Neon Runner at 140 km/j, 3 cop cars + helicopter
 4. `4-mission.jpg` — Chapter 5 finale, vault run at the casino, $48,500, 1:47 left
 
-Screenshots are rendered by `tools/shots.mjs` (Playwright, headless Chromium) — run it with `node tools/shots.mjs`.
+Screenshots are rendered by `tools/shots.mjs` (Playwright, headless Chromium) — run it with `node tools/shots.mjs`. It reads the shot list from `shots.json` and validates every staged value before writing the files.
 
 ## Tech
 

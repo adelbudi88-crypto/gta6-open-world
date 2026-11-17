@@ -1,5 +1,19 @@
+# Dependencies
 node_modules/
 tools/node_modules/
+
+# Build / grader output
 out/
+dist/
+
+# Logs and temp files
 *.log
-tools/node_modules
+*.tmp
+
+# Playwright artifacts
+test-results/
+playwright-report/
+
+# OS junk
+.DS_Store
+Thumbs.db

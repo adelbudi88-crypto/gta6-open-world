@@ -1,52 +1,63 @@
-// Save / load via localStorage. One slot, versioned (v2: cash, respect,
-// garage upgrades, weapon state, day). A v1 save is ignored on purpose.
-const KEY = 'porto-azul-save-v2';
+// Save / load through localStorage. One slot, versioned: a v2 save carries
+// cash, respect, garage upgrades, weapon state and the day counter, and a
+// save from an older version is ignored on purpose (its shape changed).
+const SLOT_KEY = 'porto-azul-save-v2';
+const SLOT_VERSION = 2;
+
+// Every field a save carries, in storage order. saveGame copies exactly
+// these keys off the live state object; loadGame hands the record back.
+const SAVED_FIELDS = [
+  'cash', 'missionIndex', 'x', 'z', 'health', 'armour', 'mag', 'reserve',
+  'respect', 'garageEngine', 'garageArmor', 'playSeconds', 'day',
+];
+
+function readSlot() {
+  try {
+    const raw = localStorage.getItem(SLOT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 export function saveGame(state) {
   try {
-    localStorage.setItem(KEY, JSON.stringify({
-      v: 2,
-      savedAt: Date.now(),
-      cash: state.cash,
-      missionIndex: state.missionIndex,
-      x: state.x,
-      z: state.z,
-      health: state.health,
-      armour: state.armour,
-      mag: state.mag,
-      reserve: state.reserve,
-      respect: state.respect,
-      garageEngine: state.garageEngine,
-      garageArmor: state.garageArmor,
-      playSeconds: state.playSeconds,
-      day: state.day,
-    }));
+    const record = { v: SLOT_VERSION, savedAt: Date.now() };
+    for (const key of SAVED_FIELDS) record[key] = state[key];
+    localStorage.setItem(SLOT_KEY, JSON.stringify(record));
     return true;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 export function loadGame() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    const d = JSON.parse(raw);
-    if (d.v !== 2) return null;
-    return d;
-  } catch { return null; }
+  const record = readSlot();
+  if (!record || record.v !== SLOT_VERSION) return null;
+  return record;
 }
 
 export function hasSave() {
-  try { return !!localStorage.getItem(KEY); } catch { return false; }
+  try {
+    return localStorage.getItem(SLOT_KEY) !== null;
+  } catch {
+    return false;
+  }
 }
 
 export function clearSave() {
-  try { localStorage.removeItem(KEY); } catch {}
+  try {
+    localStorage.removeItem(SLOT_KEY);
+  } catch {
+    // storage unavailable (private mode, blocked) — nothing to clear.
+  }
 }
 
-// Human summary for the start screen ("LANJUTKAN — Day 2 · $1.250 · Misi 3/5").
-export function saveSummary(d) {
-  if (!d) return '';
-  const day = d.day || 1;
-  const mission = Math.min((d.missionIndex ?? 0) + 1, 5);
-  return `Day ${day} · $${(d.cash ?? 0).toLocaleString('id-ID')} · Misi ${mission}/5`;
+// One-liner for the continue button, e.g. "Day 2 · $1.250 · Misi 3/5".
+export function saveSummary(record) {
+  if (!record) return '';
+  const day = record.day || 1;
+  const chapter = Math.min((record.missionIndex ?? 0) + 1, 5);
+  const cash = (record.cash ?? 0).toLocaleString('id-ID');
+  return `Day ${day} · $${cash} · Misi ${chapter}/5`;
 }

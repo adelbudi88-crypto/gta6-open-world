@@ -1,7 +1,7 @@
 // The player on foot: third-person block character, WASD + mouse look,
 // punch (F), hitscan shooting (click) with a tracer line, car entry (E).
-// v2: armour that soaks damage, HORNET SMG with magazine + reserve ammo,
-// reload timer, respect points + level, garage upgrade levels.
+// v2.1: same armour / HORNET SMG / reload / respect / garage levels as v2,
+// built from a parts table instead of one long mesh-building block.
 import * as THREE from 'three';
 import { clamp, collideCircle, dist2 } from './rng.js';
 
@@ -25,43 +25,36 @@ export function damageWithArmour(p, n) {
   }
 }
 
+// One box part of a block figure: [w, h, d, material, x, y, z, shadow?].
+function addPart(group, material, spec, named) {
+  const [w, h, d, x, y, z] = spec;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+  mesh.position.set(x, y, z);
+  if (spec[6]) mesh.castShadow = true;
+  group.add(mesh);
+  if (named) group.userData[named] = mesh;
+  return mesh;
+}
+
 export function makePlayer(scene) {
   const g = new THREE.Group();
   const shirt = new THREE.MeshLambertMaterial({ color: PLAYER_COLOR });
   const skin = new THREE.MeshLambertMaterial({ color: 0xe8b88a });
   const pants = new THREE.MeshLambertMaterial({ color: 0x222831 });
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.75, 0.36), shirt);
-  torso.position.y = 1.1;
-  torso.castShadow = true;
-  g.add(torso);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skin);
-  head.position.y = 1.68;
-  head.castShadow = true;
-  g.add(head);
-  // cap
-  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.44), new THREE.MeshLambertMaterial({ color: 0xc23a2e }));
-  cap.position.y = 1.92;
-  g.add(cap);
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.75, 0.24), pants);
-  legL.position.set(-0.16, 0.38, 0);
-  g.add(legL);
-  const legR = legL.clone();
-  legR.position.x = 0.16;
-  g.add(legR);
-  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.65, 0.2), shirt);
-  armL.position.set(-0.42, 1.1, 0);
-  g.add(armL);
-  const armR = armL.clone();
-  armR.position.x = 0.42;
-  g.add(armR);
-  // SMG in right hand
-  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.55), new THREE.MeshLambertMaterial({ color: 0x181818 }));
-  gun.position.set(0.42, 0.85, 0.22);
-  g.add(gun);
-  const gunMag = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, 0.1), new THREE.MeshLambertMaterial({ color: 0x2a2a2e }));
-  gunMag.position.set(0.42, 0.72, 0.3);
-  g.add(gunMag);
-  g.userData = { legL, legR, armL, armR };
+  const capMat = new THREE.MeshLambertMaterial({ color: 0xc23a2e });
+  const gunMat = new THREE.MeshLambertMaterial({ color: 0x181818 });
+  const magMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2e });
+  g.userData = {};
+  addPart(g, shirt, [0.62, 0.75, 0.36, 0, 1.1, 0, true]);
+  addPart(g, skin, [0.4, 0.4, 0.4, 0, 1.68, 0, true]);
+  addPart(g, capMat, [0.44, 0.14, 0.44, 0, 1.92, 0]); // cap
+  addPart(g, pants, [0.22, 0.75, 0.24, -0.16, 0.38, 0], 'legL');
+  addPart(g, pants, [0.22, 0.75, 0.24, 0.16, 0.38, 0], 'legR');
+  addPart(g, shirt, [0.18, 0.65, 0.2, -0.42, 1.1, 0], 'armL');
+  addPart(g, shirt, [0.18, 0.65, 0.2, 0.42, 1.1, 0], 'armR');
+  // SMG in the right hand, magazine below it
+  addPart(g, gunMat, [0.1, 0.14, 0.55, 0.42, 0.85, 0.22]);
+  addPart(g, magMat, [0.08, 0.22, 0.1, 0.42, 0.72, 0.3]);
   scene.add(g);
 
   const p = {
@@ -102,20 +95,24 @@ export function tickReload(p, dt) {
 // Move on foot. input: {f, s, l, r, sprint, yaw}. Returns nothing.
 export function stepPlayerOnFoot(p, dt, input, colliders) {
   const speed = input.sprint ? 8.5 : 4.6;
-  const sin = Math.sin(input.yaw), cos = Math.cos(input.yaw);
+  const sin = Math.sin(input.yaw);
+  const cos = Math.cos(input.yaw);
   // camera-relative movement: forward = -Z of camera yaw
-  let mx = 0, mz = 0;
+  let mx = 0;
+  let mz = 0;
   if (input.f) { mx += -sin; mz += -cos; }
   if (input.s) { mx += sin; mz += cos; }
   if (input.l) { mx += -cos; mz += sin; }
   if (input.r) { mx += cos; mz += -sin; }
   const len = Math.hypot(mx, mz);
   if (len > 0) {
-    mx /= len; mz /= len;
+    mx /= len;
+    mz /= len;
     const nx = p.x + mx * speed * dt;
     const nz = p.z + mz * speed * dt;
     const res = collideCircle(nx, nz, 0.5, colliders);
-    p.x = res.x; p.z = res.z;
+    p.x = res.x;
+    p.z = res.z;
     p.heading = Math.atan2(mx, mz);
     p.walkPhase += dt * speed * 2.4;
   }
@@ -137,11 +134,15 @@ export function stepPlayerOnFoot(p, dt, input, colliders) {
 
 // Find the nearest stealable car within reach.
 export function nearestCar(p, cars, maxD = 6) {
-  let best = null, bestD = maxD * maxD;
+  let best = null;
+  let bestD = maxD * maxD;
   for (const c of cars) {
     if (c.dead) continue;
     const d = dist2(p.x, p.z, c.x, c.z);
-    if (d < bestD) { bestD = d; best = c; }
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
   }
   return best;
 }
@@ -154,11 +155,13 @@ export function shootFrom(scene, origin, dir, range, targets) {
     y: origin.y + dir.y * range,
     z: origin.z + dir.z * range,
   };
-  let bestT = 1, hitTarget = null;
+  let bestT = 1;
+  let hitTarget = null;
   for (const t of targets) {
     if (t.dead || t.hp <= 0) continue;
     // ray vs vertical cylinder at (t.x, t.z), radius t.radius, height 1.8
-    const ox = origin.x - t.x, oz = origin.z - t.z;
+    const ox = origin.x - t.x;
+    const oz = origin.z - t.z;
     const a = dir.x * dir.x + dir.z * dir.z;
     if (a < 1e-8) continue;
     const b = 2 * (ox * dir.x + oz * dir.z);
