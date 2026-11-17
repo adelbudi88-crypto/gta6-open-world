@@ -1,4 +1,4 @@
-// Porto Azul — a gta6-01 entry (Node 22, standard library only).
+// Porto Azul II — a gta6-01 entry, v2 (Node 22, standard library only).
 // The game is this directory's game/ folder: plain static files a desktop
 // browser loads offline (game/index.html and its ES modules, three.js
 // vendored under game/vendor/, no network request). This program hands it
@@ -7,6 +7,11 @@
 // vendored make.fun library. It never deletes anything under /output:
 // /output is a mount point in the grader's sandbox, so it only ever creates
 // directories and copies files into it.
+//
+// v2 vs v1: five story chapters with timers and payouts, police helicopter
+// at 4+ stars, garage upgrades, armour + SMG reload, respect levels, four
+// radio stations, dusk/sunset lighting with neon signs, named districts,
+// and four mid-action screenshots (police chase, high speed, all HUD on).
 //
 // Serve the game locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:

@@ -1,9 +1,29 @@
 // The player on foot: third-person block character, WASD + mouse look,
 // punch (F), hitscan shooting (click) with a tracer line, car entry (E).
+// v2: armour that soaks damage, HORNET SMG with magazine + reserve ammo,
+// reload timer, respect points + level, garage upgrade levels.
 import * as THREE from 'three';
 import { clamp, collideCircle, dist2 } from './rng.js';
 
 const PLAYER_COLOR = 0x2e6ac2;
+export const WEAPON_NAME = 'HORNET SMG';
+export const MAG_SIZE = 30;
+
+// Respect level: 1 + one level per 3 respect points (missions +2, thug +1).
+export function levelFromRespect(respect) {
+  return 1 + Math.floor(Math.max(0, respect) / 3);
+}
+
+// Damage split: armour absorbs 60% while any is left, health takes the rest.
+export function damageWithArmour(p, n) {
+  if (p.armour > 0) {
+    const absorbed = Math.min(p.armour, n * 0.6);
+    p.armour = Math.max(0, p.armour - absorbed);
+    p.health = clamp(p.health - (n - absorbed), 0, 100);
+  } else {
+    p.health = clamp(p.health - n, 0, 100);
+  }
+}
 
 export function makePlayer(scene) {
   const g = new THREE.Group();
@@ -34,23 +54,49 @@ export function makePlayer(scene) {
   const armR = armL.clone();
   armR.position.x = 0.42;
   g.add(armR);
-  // pistol in right hand
-  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.42), new THREE.MeshLambertMaterial({ color: 0x181818 }));
-  gun.position.set(0.42, 0.85, 0.18);
+  // SMG in right hand
+  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.55), new THREE.MeshLambertMaterial({ color: 0x181818 }));
+  gun.position.set(0.42, 0.85, 0.22);
   g.add(gun);
+  const gunMag = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, 0.1), new THREE.MeshLambertMaterial({ color: 0x2a2a2e }));
+  gunMag.position.set(0.42, 0.72, 0.3);
+  g.add(gunMag);
   g.userData = { legL, legR, armL, armR };
   scene.add(g);
 
   const p = {
     mesh: g,
     x: 0, z: 30, heading: 0, camYaw: 0,
-    health: 100, ammo: 24, cash: 0,
+    health: 100, armour: 0, maxArmour: 100,
+    weapon: WEAPON_NAME, magSize: MAG_SIZE, mag: MAG_SIZE, reserve: 120,
+    reloadTimer: 0, cash: 0,
+    respect: 0, respectLevel: 1,
+    garageEngine: 0, garageArmor: 0,
     inCar: false, car: null,
     walkPhase: 0, punchTimer: 0, punchCooldown: 0,
     shootCooldown: 0, sprint: false,
     alive: true,
   };
   return p;
+}
+
+// Begin a reload if the magazine is short and reserve ammo exists.
+export function startReload(p) {
+  if (p.reloadTimer > 0 || p.mag >= p.magSize || p.reserve <= 0) return false;
+  p.reloadTimer = 1.0;
+  return true;
+}
+
+// Advance the reload timer; returns true on the frame the reload lands.
+export function tickReload(p, dt) {
+  if (p.reloadTimer <= 0) return false;
+  p.reloadTimer -= dt;
+  if (p.reloadTimer > 0) return false;
+  const need = p.magSize - p.mag;
+  const take = Math.min(need, p.reserve);
+  p.mag += take;
+  p.reserve -= take;
+  return true;
 }
 
 // Move on foot. input: {f, s, l, r, sprint, yaw}. Returns nothing.

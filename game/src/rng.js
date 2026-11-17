@@ -1,5 +1,6 @@
 // Seeded RNG (mulberry32) + small helpers. Deterministic per seed so that
 // ?shot=...&seed=N staging renders the same city every run.
+// v2: adds shuffle + gaussian helpers used by the dusk city builder.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
@@ -12,12 +13,37 @@ export function mulberry32(seed) {
 
 export function makeRng(seed) {
   const next = mulberry32(seed);
+  let spare = null;
   return {
     next,
     range(min, max) { return min + next() * (max - min); },
     int(min, max) { return Math.floor(this.range(min, max + 1)); },
     pick(arr) { return arr[Math.floor(next() * arr.length)]; },
     chance(p) { return next() < p; },
+    // Fisher-Yates shuffle of a copy, driven by this rng.
+    shuffle(arr) {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(next() * (i + 1));
+        const t = a[i]; a[i] = a[j]; a[j] = t;
+      }
+      return a;
+    },
+    // Box-Muller gaussian, mean 0, stddev 1 (cached spare value).
+    gauss() {
+      if (spare !== null) {
+        const v = spare;
+        spare = null;
+        return v;
+      }
+      let u = 0, v = 0;
+      while (u === 0) u = next();
+      while (v === 0) v = next();
+      const r = Math.sqrt(-2 * Math.log(u));
+      const t = 2 * Math.PI * v;
+      spare = r * Math.sin(t);
+      return r * Math.cos(t);
+    },
   };
 }
 
@@ -62,4 +88,13 @@ export function angleLerp(a, b, t) {
 export function dist2(ax, az, bx, bz) {
   const dx = ax - bx, dz = az - bz;
   return dx * dx + dz * dz;
+}
+// Distance from a point to the nearest of several named places.
+export function nearestPlace(x, z, places) {
+  let best = null, bestD = Infinity;
+  for (const p of places) {
+    const d = dist2(x, z, p.x, p.z);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best;
 }

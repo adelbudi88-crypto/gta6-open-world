@@ -1,27 +1,29 @@
-# Porto Azul — Open-World Crime Game
+# Porto Azul II — Open-World Crime Game
 
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-An original open-world crime game built with three.js — explore the sunny coastal city of **Porto Azul** on foot and by car, outrun the police, and run jobs for Mara. Built by an AI agent for make.fun's "Make GTA 6" bounty (gta6-01), $1,666 in USDC. Everything in it is original: the city, characters, vehicles, names, story, art, sound, and music — no Rockstar Games name, logo, character, map, or asset.
+An original open-world crime game built with three.js — explore the neon dusk of **Porto Azul** on foot and by car, outrun the police helicopter, and run five story chapters for Mara and Benny. Built by an AI agent for make.fun's "Make GTA 6" bounty (gta6-01), $1,666 in USDC. Everything in it is original: the city, characters, vehicles, names, story, art, sound, and music — no Rockstar Games name, logo, character, map, or asset.
 
 ## The story
 
-Daz, a driver for hire in Porto Azul, takes jobs from Mara: deliver a package to Plaza Torre Azul, chase down the traitor Tono and his red car, shake off a police dragnet, and clear the pier guards for one last meeting. Four chained missions, one way out.
+Daz, a driver for hire in Porto Azul, takes jobs from Mara and Benny across five chapters: deliver a package to the Casino Royale, chase down the traitor Tono and his red Comet GT, shake off a police dragnet under a helicopter searchlight, rob the casino vault, and escape the whole city's police force to Benny's garage. Five chapters, one way out.
 
 ## What is in the game
 
-- **Procedural 3D city** — grid of roads, instanced buildings with lit windows, a park with a pond, the Torre Azul plaza tower, a marina and beach strip, street lamps and palms, all in bright daylight.
-- **On foot + by car** — third-person walking (WASD + mouse camera), steal parked or traffic cars (E), arcade driving with collisions, handbrake, horn.
-- **Traffic AI + pedestrians** — cars follow the road grid and turn at intersections; pedestrians stroll the sidewalks and flee from gunfire, speeding cars, and high wanted levels.
-- **Wanted system (1–5 stars) + police** — patrol cars ram you, foot cops chase you down; lose them by distance and time. Get busted if a cop grabs you on foot, wasted if your health hits zero.
-- **4 chained story missions** — delivery, car chase, police escape, and a pier shootout, with a beacon marker, minimap marker, and objective HUD.
-- **Combat** — punch (F) and hitscan shooting (click) with tracers, health, ammo, and cash rewards.
-- **HUD + minimap** — health bar, wanted stars, cash, speed, in-game clock, live canvas minimap (player, cars, cops, mission marker), objective banner, message toasts.
+- **Procedural 3D city at dusk** — grid of roads, instanced buildings with lit windows, a park with a pond, the Torre Azul plaza tower, a marina and beach strip, street lamps and palms, wet-road puddles, a low orange sun, and neon signs: CASINO ROYALE, HOTEL MIRAGE, NEON BAR, BENNY'S GARAGE, MOTEL PALMERA.
+- **Named districts** — Palmline Beach, the Mirage Strip, Torre Plaza, Benny's Yard, the Docks, Palm Court — the HUD always shows where you are and the district's flavor line.
+- **On foot + by car** — third-person walking (WASD + mouse camera), steal parked or traffic cars (E), arcade driving with collisions, handbrake, horn. Nine named car models (Comet GT, Neon Runner, Azul GT Coupe…) with their own top speeds and health — a wrecked car stalls out.
+- **Traffic AI + pedestrians** — 22 cars follow the road grid and turn at intersections; 40 pedestrians stroll the sidewalks, crowd the casino strip, and flee from gunfire, speeding cars, and high wanted levels.
+- **Wanted system (1–5 stars) + police** — patrol cars ram you, foot cops chase you down, and at 4+ stars a police helicopter circles overhead with a searchlight and keeps the heat from cooling off. At 5 stars you are MOST WANTED. Get busted if a cop grabs you on foot, wasted if your health hits zero.
+- **5 chained story chapters** — delivery, car chase, police escape, casino vault job, and the finale vault run, each with a chapter banner, a countdown timer, and a payout ($400–$5,000), plus a beacon marker and a route line on the minimap.
+- **Economy + garage** — earn cash from missions and takedowns, then spend it at Benny's Garage: engine upgrades (top speed +4 per level) and armour, with slow car repair while parked there.
+- **Combat** — punch (F) and hitscan shooting (click) with tracers, HORNET SMG with magazine + reserve ammo and reload (Q), health + armour bars, respect levels that grow with every job.
+- **Full HUD, every corner** — district top-left, mission banner + timer top-center, cash / wanted / weapon / health / armour / respect top-right, round minimap with route bottom-left, circular speedometer + gear + car name + car health bottom-right, radio bottom-center.
+- **Radio** — four synthesized stations (SOL FM, NEON 98.5, PALM RADIO, STATIC), switch with C; engine hum, two-tone siren, gunshots, and a bassline loop. No audio files.
 - **Start screen, save, pause, restart, mute** — progress autosaves to localStorage every 30 seconds; P pauses, R restarts, M mutes.
-- **Synthesized sound** — WebAudio engine hum, two-tone siren, gunshots, pickups, and a bassline music loop. No audio files.
-- **Deterministic screenshots** — `?shot=drive|foot|chase|mission&seed=1` stages each scene for reproducible captures.
+- **Deterministic screenshots** — `?shot=drive|foot|chase|mission&seed=1` stages each scene mid-action for reproducible captures.
 
 ## Controls
 
@@ -32,6 +34,9 @@ Daz, a driver for hire in Porto Azul, takes jobs from Mara: deliver a package to
 | E | Enter / exit car (steal parked or traffic cars) |
 | F | Punch |
 | Left click | Shoot |
+| Q | Reload SMG |
+| C | Switch radio station |
+| G | Buy garage upgrade (near Benny's Garage, in a car) |
 | Space | Brake / handbrake |
 | H | Horn |
 | P | Pause |
@@ -48,10 +53,10 @@ Then open http://localhost:8080. No build step, no network requests — the game
 
 ## Screenshots
 
-1. `1-drive.jpg` — driving down the avenue, HUD + minimap + mission objective
-2. `2-foot.jpg` — on foot in the city near Plaza Torre Azul
-3. `3-chase.jpg` — police chase at wanted level 3
-4. `4-mission.jpg` — the pier shootout, mission 4
+1. `1-drive.jpg` — Chapter 2, Comet GT at 130+ km/j, wanted 4 + helicopter, $18,450
+2. `2-foot.jpg` — Chapter 4, Daz on foot outside Casino Royale neon, SMG out, guards ahead
+3. `3-chase.jpg` — Chapter 3, MOST WANTED 5 stars, Neon Runner at 140 km/j, 3 cop cars + helicopter
+4. `4-mission.jpg` — Chapter 5 finale, vault run at the casino, $48,500, 1:47 left
 
 Screenshots are rendered by `tools/shots.mjs` (Playwright, headless Chromium) — run it with `node tools/shots.mjs`.
 

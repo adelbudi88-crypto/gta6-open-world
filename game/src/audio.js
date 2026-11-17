@@ -1,5 +1,14 @@
 // Synthesized sound: no audio files. Engine hum, siren, gunshots, pickups,
-// footsteps and a small bassline music loop — all WebAudio oscillators/noise.
+// footsteps and a radio with 4 stations (C switches) — each station has its
+// own bassline groove and tempo, all WebAudio oscillators/noise.
+// v2: radio stations + reload click + upgrade cha-ching.
+export const RADIO_STATIONS = [
+  { name: 'SOL FM', freq: '95.4 · SYNTHWAVE', tempo: 240, bass: [110, 0, 110, 130.8, 0, 98, 0, 123.5] },
+  { name: 'NEON 98.5', freq: '98.5 · NIGHT DRIVE', tempo: 210, bass: [87.3, 87.3, 0, 110, 98, 0, 123.5, 0] },
+  { name: 'PALM RADIO', freq: '101.2 · LATIN HEAT', tempo: 260, bass: [130.8, 0, 98, 0, 110, 0, 146.8, 0] },
+  { name: 'STATIC', freq: '— · NO SIGNAL', tempo: 240, bass: [0, 0, 0, 0, 0, 0, 0, 0] },
+];
+
 export function createAudio() {
   let ctx = null;
   let master = null;
@@ -8,6 +17,7 @@ export function createAudio() {
   let sirenOsc = null, sirenGain = null, sirenTimer = null;
   let musicTimer = null;
   let musicStep = 0;
+  let station = 0;
 
   function ensure() {
     if (ctx) return true;
@@ -57,6 +67,20 @@ export function createAudio() {
     src.start(t); src.stop(t + dur);
   }
 
+  function restartMusicLoop() {
+    if (musicTimer) clearInterval(musicTimer);
+    musicTimer = null;
+    musicStep = 0;
+    const st = RADIO_STATIONS[station];
+    musicTimer = setInterval(() => {
+      if (muted) return;
+      const f = st.bass[musicStep % st.bass.length];
+      musicStep++;
+      if (f) blip(f, 0.22, 'triangle', 0.12);
+      if (musicStep % 4 === 0) blip(220, 0.06, 'sine', 0.05);
+    }, st.tempo);
+  }
+
   return {
     unlock() { ensure(); if (ctx && ctx.state === 'suspended') ctx.resume(); },
     setMuted(m) {
@@ -73,6 +97,8 @@ export function createAudio() {
     click() { blip(880, 0.05, 'square', 0.15); },
     horn() { blip(370, 0.25, 'square', 0.2); blip(466, 0.25, 'square', 0.15); },
     crash() { noiseBurst(0.25, 0.5, 700); },
+    reload() { blip(1200, 0.04, 'square', 0.18); setTimeout(() => blip(700, 0.05, 'square', 0.2), 120); },
+    upgrade() { [660, 880, 1100, 1320].forEach((f, i) => setTimeout(() => blip(f, 0.12, 'triangle', 0.28), i * 80)); },
     engineStart(speed01) {
       if (!ensure() || muted) return;
       if (!engineOsc) {
@@ -116,16 +142,16 @@ export function createAudio() {
     },
     startMusic() {
       if (!ensure() || musicTimer) return;
-      // Simple bassline loop: A minor groove, 8 steps.
-      const bass = [110, 0, 110, 130.8, 0, 98, 0, 123.5];
-      musicTimer = setInterval(() => {
-        if (muted) return;
-        const f = bass[musicStep % bass.length];
-        musicStep++;
-        if (f) blip(f, 0.22, 'triangle', 0.12);
-        if (musicStep % 4 === 0) blip(220, 0.06, 'sine', 0.05);
-      }, 240);
+      restartMusicLoop();
     },
     stopMusic() { if (musicTimer) clearInterval(musicTimer); musicTimer = null; },
+    stationName() { return RADIO_STATIONS[station].name; },
+    stationFreq() { return RADIO_STATIONS[station].freq; },
+    setStation(i) {
+      station = ((i % RADIO_STATIONS.length) + RADIO_STATIONS.length) % RADIO_STATIONS.length;
+      if (musicTimer) restartMusicLoop();
+      return RADIO_STATIONS[station].name;
+    },
+    cycleStation() { return this.setStation(station + 1); },
   };
 }

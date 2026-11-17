@@ -1,13 +1,31 @@
 // Cars: box-built meshes, arcade driving physics, and traffic AI that
 // follows the road grid (right-hand lanes, random turns at intersections).
+// v2: every car is a named model with its own top speed and health —
+// crashes chip the health down and a wrecked car stalls out. Traffic is
+// denser (22 cars) so the avenues read as alive in screenshots.
 import * as THREE from 'three';
 import { clamp, collideCircle, dist2 } from './rng.js';
 
-const CAR_COLORS = [0xc23a2e, 0x2e6ac2, 0xe8c832, 0x3aa85a, 0x8a5ac2, 0xd8d8d8, 0x222226, 0xe87a2a, 0x3ab8a8];
+export const CAR_MODELS = [
+  { name: 'Azul GT Coupe', color: 0x2e6ac2, baseMax: 34 },
+  { name: 'Comet GT', color: 0xc23a2e, baseMax: 38 },
+  { name: 'Solera S', color: 0xe8c832, baseMax: 36 },
+  { name: 'Palma V8', color: 0x3aa85a, baseMax: 35 },
+  { name: 'Harbor Taxi', color: 0xe8a832, baseMax: 32 },
+  { name: 'Neon Runner', color: 0x8a5ac2, baseMax: 40 },
+  { name: 'Mirage LX', color: 0xd8d8d8, baseMax: 33 },
+  { name: 'Dune Buggy', color: 0xe87a2a, baseMax: 37 },
+  { name: 'Coral Cruiser', color: 0x3ab8a8, baseMax: 34 },
+];
 
-export function createCarMesh(colorHex, police = false) {
+export function modelByName(name) {
+  return CAR_MODELS.find((m) => m.name === name) || CAR_MODELS[0];
+}
+
+export function createCarMesh(modelOrColor, police = false) {
+  const model = typeof modelOrColor === 'object' ? modelOrColor : { name: '', color: modelOrColor, baseMax: 30 };
   const g = new THREE.Group();
-  const bodyMat = new THREE.MeshLambertMaterial({ color: police ? 0xf0f0f0 : colorHex });
+  const bodyMat = new THREE.MeshLambertMaterial({ color: police ? 0xf0f0f0 : model.color });
   const darkMat = new THREE.MeshLambertMaterial({ color: 0x1a2028 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.62, 4.2), bodyMat);
   body.position.y = 0.55;
@@ -17,6 +35,13 @@ export function createCarMesh(colorHex, police = false) {
   cabin.position.set(0, 1.1, -0.2);
   cabin.castShadow = true;
   g.add(cabin);
+  // neon underglow strip (dusk look): a faint coloured slab under the body
+  const glow = new THREE.Mesh(
+    new THREE.BoxGeometry(1.9, 0.06, 4.0),
+    new THREE.MeshBasicMaterial({ color: police ? 0x3040ff : model.color, transparent: true, opacity: 0.35 }),
+  );
+  glow.position.y = 0.12;
+  g.add(glow);
   const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.3, 10);
   wheelGeo.rotateZ(Math.PI / 2);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
@@ -27,13 +52,13 @@ export function createCarMesh(colorHex, police = false) {
     g.add(w);
     wheels.push(w);
   }
-  const lightMat = new THREE.MeshLambertMaterial({ color: 0xfff2b8, emissive: 0x554400 });
+  const lightMat = new THREE.MeshLambertMaterial({ color: 0xfff2b8, emissive: 0x887733 });
   for (const x of [-0.6, 0.6]) {
     const h = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.1), lightMat);
     h.position.set(x, 0.62, 2.11);
     g.add(h);
   }
-  const tailMat = new THREE.MeshLambertMaterial({ color: 0xc02020, emissive: 0x440000 });
+  const tailMat = new THREE.MeshLambertMaterial({ color: 0xc02020, emissive: 0x660000 });
   for (const x of [-0.6, 0.6]) {
     const t = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.1), tailMat);
     t.position.set(x, 0.62, -2.11);
@@ -61,16 +86,17 @@ export function createCarMesh(colorHex, police = false) {
 }
 
 // Arcade car physics: throttle/steer/brake in [-1,1]. Mutates car in place.
+// A hard crash chips car.health; at 0 health the car stalls (maxSpeed 6).
 export function stepCar(car, dt, throttle, steer, brake, colliders, others, peds) {
-  const maxSpeed = car.maxSpeed ?? 30;
+  const maxSpeed = car.health <= 0 ? 6 : (car.maxSpeed ?? 30);
   const maxReverse = 10;
-  if (throttle > 0) car.speed += throttle * 16 * dt;
-  else if (throttle < 0) car.speed += throttle * 11 * dt;
+  if (throttle > 0) car.speed += throttle * 22 * dt;
+  else if (throttle < 0) car.speed += throttle * 14 * dt;
   if (brake > 0) {
     car.speed -= Math.sign(car.speed) * 26 * dt;
     if (Math.abs(car.speed) < 0.5) car.speed = 0;
   }
-  car.speed -= car.speed * 0.55 * dt; // drag + rolling resistance
+  car.speed -= car.speed * 0.35 * dt; // drag + rolling resistance
   car.speed = clamp(car.speed, -maxReverse, maxSpeed);
   const steerFactor = clamp(Math.abs(car.speed) / 8, 0, 1) * (car.speed >= 0 ? 1 : -1);
   car.heading += steer * 1.9 * steerFactor * dt;
@@ -83,7 +109,10 @@ export function stepCar(car, dt, throttle, steer, brake, colliders, others, peds
     // kill the speed component into the wall
     const vn = fx * res.nx + fz * res.nz;
     if (vn < 0) car.speed *= 0.45;
-    if (Math.abs(car.speed) > 12) car.crashed = true;
+    if (Math.abs(car.speed) > 12) {
+      car.crashed = true;
+      car.health = Math.max(0, (car.health ?? 100) - 6);
+    }
     nx = res.x; nz = res.z;
   }
   car.x = nx; car.z = nz;
@@ -96,7 +125,11 @@ export function stepCar(car, dt, throttle, steer, brake, colliders, others, peds
       const push = (4 - d) / 2;
       const px = (car.x - o.x) / d, pz = (car.z - o.z) / d;
       car.x += px * push; car.z += pz * push;
-      if (Math.abs(car.speed) > 8) { car.speed *= 0.8; car.crashed = true; }
+      if (Math.abs(car.speed) > 8) {
+        car.speed *= 0.8;
+        car.crashed = true;
+        car.health = Math.max(0, (car.health ?? 100) - 4);
+      }
     }
   }
   // pedestrians get knocked (handled by peds module via car.knock)
@@ -115,14 +148,17 @@ export function stepCar(car, dt, throttle, steer, brake, colliders, others, peds
 export function makeTraffic(scene, rng, city) {
   const cars = [];
   const axes = ['x', 'z'];
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 22; i++) {
     const axis = rng.pick(axes);
     const line = rng.pick(axis === 'x' ? city.roadsZ : city.roadsX);
     const dir = rng.chance(0.5) ? 1 : -1;
-    const mesh = createCarMesh(rng.pick(CAR_COLORS));
+    const model = rng.pick(CAR_MODELS);
+    const mesh = createCarMesh(model);
     scene.add(mesh);
     cars.push({
-      mesh, axis, line, dir,
+      mesh, axis, line, dir, model,
+      name: model.name, baseMax: model.baseMax, maxSpeed: model.baseMax,
+      health: 100, maxHealth: 100,
       along: rng.range(-city.roadsX[city.roadsX.length - 1], city.roadsX[city.roadsX.length - 1]),
       speed: rng.range(7, 11), baseSpeed: rng.range(7, 11),
       heading: 0, x: 0, z: 0, dead: false, traffic: true,
@@ -178,17 +214,23 @@ export function makeTraffic(scene, rng, city) {
 export function makeParkedCars(scene, rng, city) {
   const cars = [];
   const spots = [
-    { x: 4, z: 62 }, { x: -7, z: -39 }, { x: 39, z: -7 }, { x: -39, z: 7 },
-    { x: 85, z: 39 }, { x: -85, z: -39 }, { x: 39, z: 85 }, { x: -39, z: -85 },
+    { x: 4, z: 62, model: 'Azul GT Coupe' }, { x: -7, z: -39, model: 'Comet GT' },
+    { x: 39, z: -7, model: 'Solera S' }, { x: -39, z: 7, model: 'Palma V8' },
+    { x: 85, z: 39, model: 'Neon Runner' }, { x: -85, z: -39, model: 'Mirage LX' },
+    { x: 39, z: 85, model: 'Dune Buggy' }, { x: -39, z: -85, model: 'Coral Cruiser' },
+    { x: 163, z: -62, model: 'Comet GT' }, { x: -163, z: 163, model: 'Harbor Taxi' },
   ];
   for (const s of spots) {
-    const mesh = createCarMesh(rng.pick(CAR_COLORS));
+    const model = modelByName(s.model);
+    const mesh = createCarMesh(model);
     mesh.position.set(s.x, 0, s.z);
     mesh.rotation.y = rng.pick([0, Math.PI / 2, Math.PI, -Math.PI / 2]);
     scene.add(mesh);
     cars.push({
       mesh, x: s.x, z: s.z, heading: mesh.rotation.y, speed: 0,
-      maxSpeed: 30, dead: false, parked: true, stolen: false,
+      name: model.name, baseMax: model.baseMax, maxSpeed: model.baseMax,
+      health: 100, maxHealth: 100,
+      dead: false, parked: true, stolen: false,
     });
   }
   return cars;

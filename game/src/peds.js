@@ -1,10 +1,12 @@
 // Pedestrians: simple block figures walking the sidewalks; they flee from
 // gunfire, speeding cars and high wanted levels, and get knocked down by cars.
+// v2: denser crowd (40), a few of them linger around the casino strip neon
+// at dusk, and they scatter wider when a police chase rolls through.
 import * as THREE from 'three';
 import { collideCircle, dist2 } from './rng.js';
 
 const SKIN = [0xe8b88a, 0xc98a5a, 0x8a5a3a, 0xf0c8a0];
-const SHIRT = [0xc23a2e, 0x2e6ac2, 0x3aa85a, 0xe8c832, 0x8a5ac2, 0xd8d8d8, 0x3ab8a8, 0xe87a2a];
+const SHIRT = [0xc23a2e, 0x2e6ac2, 0x3aa85a, 0xe8c832, 0x8a5ac2, 0xd8d8d8, 0x3ab8a8, 0xe87a2a, 0xff5aa8, 0x2ad8c8];
 
 function makePedMesh(colorHex, skinHex) {
   const g = new THREE.Group();
@@ -35,13 +37,23 @@ function makePedMesh(colorHex, skinHex) {
   return g;
 }
 
-export function makePeds(scene, rng, city, count = 26) {
+export function makePeds(scene, rng, city, count = 40) {
   const peds = [];
   for (let i = 0; i < count; i++) {
-    const axis = rng.chance(0.5) ? 'x' : 'z';
-    const road = rng.pick(axis === 'x' ? city.roadsZ : city.roadsX);
-    const along = rng.range(-230, 230);
-    const side = rng.chance(0.5) ? 1 : -1;
+    // one in four hangs around the casino strip, the rest spread city-wide
+    const nearCasino = i % 4 === 0;
+    let axis, road, along, side;
+    if (nearCasino) {
+      axis = 'z';
+      road = rng.pick([156, 234]);
+      along = rng.range(-140, 40);
+      side = rng.chance(0.5) ? 1 : -1;
+    } else {
+      axis = rng.chance(0.5) ? 'x' : 'z';
+      road = rng.pick(axis === 'x' ? city.roadsZ : city.roadsX);
+      along = rng.range(-230, 230);
+      side = rng.chance(0.5) ? 1 : -1;
+    }
     const mesh = makePedMesh(rng.pick(SHIRT), rng.pick(SKIN));
     scene.add(mesh);
     const p = {
@@ -85,7 +97,7 @@ export function makePeds(scene, rng, city, count = 26) {
           }
           continue;
         }
-        if (danger && dist2(p.x, p.z, playerPos.x, playerPos.z) < 900) {
+        if (danger && dist2(p.x, p.z, playerPos.x, playerPos.z) < 1600) {
           p.scare(playerPos.x, playerPos.z);
         }
         let vx, vz, sp = p.speed;
