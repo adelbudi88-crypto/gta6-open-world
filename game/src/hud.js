@@ -1,157 +1,150 @@
-// The whole HUD is DOM: four corners, a minimap canvas, a chapter banner
-// and overlays. It reads the world every frame and never writes game state.
-import { clamp, fmtCash, fmtClock, fmtTimer } from './rng.js';
-import { KMH } from './vehicles.js';
+// HUD for Porto Azul II: every corner of the screen carries game state —
+// district + flavour top-left, mission + timer top-centre, clock / cash /
+// wanted / health / armour / respect top-right, minimap + route bottom-left,
+// speedometer + gear + car bottom-right, radio + weapon bottom-centre.
+import { fmtMoney, fmtClock, fmtTimer, clamp } from './rng.js';
+import { ROAD_LINES } from './city.js';
 
-export function createHud(W) {
-  const $ = (id) => document.getElementById(id);
-  const el = {
-    district: $('hud-district'), districtSub: $('hud-district-sub'),
-    mission: $('hud-mission'), objective: $('hud-objective'), timer: $('hud-timer'),
-    clock: $('hud-clock'), cash: $('hud-cash'), stars: $('hud-stars'),
-    wanted: $('hud-wanted'), weapon: $('hud-weapon'),
-    hpFill: $('hud-hp-fill'), hpNum: $('hud-hp-num'),
-    arFill: $('hud-ar-fill'), arNum: $('hud-ar-num'),
-    respect: $('hud-respect'), radio: $('hud-radio'),
-    speed: $('hud-speed'), gear: $('hud-gear'), carName: $('hud-car'),
-    minimap: $('hud-minimap'), chapter: $('hud-chapter'),
-    chapterKicker: $('hud-chapter-kicker'), chapterTitle: $('hud-chapter-title'),
-    help: $('hud-help'), toast: $('hud-toast'),
-    start: $('overlay-start'), pause: $('overlay-pause'), end: $('overlay-end'),
-    endTitle: $('overlay-end-title'), endText: $('overlay-end-text'),
-  };
-  const mm = el.minimap.getContext('2d');
-  let chapterT = 0;
-  let toastT = 0;
+const STAR_LIT = '★';
+const STAR_DIM = '☆';
 
-  function drawMinimap() {
-    const S = 200, K = S / 620;
-    const px = (v) => (v + 310) * K;
-    mm.fillStyle = '#0d0a18';
-    mm.fillRect(0, 0, S, S);
-    // Streets.
-    mm.strokeStyle = '#3a3350';
-    mm.lineWidth = 4;
-    for (const L of W.city.streets) {
-      mm.beginPath(); mm.moveTo(px(L), 0); mm.lineTo(px(L), S); mm.stroke();
-      mm.beginPath(); mm.moveTo(0, px(L)); mm.lineTo(S, px(L)); mm.stroke();
-    }
-    // Garage + casino.
-    mm.fillStyle = '#ff9a3c';
-    mm.fillRect(px(W.city.garage.x) - 4, px(W.city.garage.z) - 4, 8, 8);
-    mm.fillStyle = '#ff5ad0';
-    mm.fillRect(px(W.city.casino.x) - 4, px(W.city.casino.z) - 4, 8, 8);
-    // Route to the objective.
-    const mp = W.missions.markerPos();
-    if (mp) {
-      mm.strokeStyle = '#ffd23c';
-      mm.lineWidth = 2;
-      mm.setLineDash([6, 4]);
-      mm.beginPath();
-      mm.moveTo(px(W.player.x), px(W.player.z));
-      mm.lineTo(px(mp.x), px(mp.z));
-      mm.stroke();
-      mm.setLineDash([]);
-      const pulse = 4 + Math.sin(W.S.time * 5) * 1.5;
-      mm.fillStyle = '#ffd23c';
-      mm.beginPath();
-      mm.arc(px(mp.x), px(mp.z), pulse, 0, Math.PI * 2);
-      mm.fill();
-    }
-    // Cops.
-    mm.fillStyle = '#3d7bff';
-    for (const c of W.police.copCars) {
-      mm.beginPath(); mm.arc(px(c.x), px(c.z), 3, 0, Math.PI * 2); mm.fill();
-    }
-    mm.fillStyle = '#ff3b3b';
-    for (const c of W.police.footCops) {
-      mm.beginPath(); mm.arc(px(c.x), px(c.z), 2.5, 0, Math.PI * 2); mm.fill();
-    }
-    // Player arrow. Canvas y grows downward like world z, so an arrow drawn
-    // pointing up must rotate by (PI - heading) to match the world forward.
-    const x = px(W.player.x), y = px(W.player.z);
-    mm.save();
-    mm.translate(x, y);
-    mm.rotate(Math.PI - W.player.heading);
-    mm.fillStyle = '#ffffff';
-    mm.beginPath();
-    mm.moveTo(0, -7); mm.lineTo(5, 6); mm.lineTo(-5, 6); mm.closePath();
-    mm.fill();
-    mm.restore();
+export function createHud(doc) {
+  const el = (id) => doc.getElementById(id);
+  const districtEl = el('district');
+  const flavorEl = el('flavor');
+  const missionEl = el('mission');
+  const objectiveEl = el('objective');
+  const timerEl = el('timer');
+  const clockEl = el('clock');
+  const cashEl = el('cash');
+  const wantedEl = el('wanted');
+  const hpFill = doc.querySelector('#hpbar > i');
+  const arFill = doc.querySelector('#arbar > i');
+  const respectEl = el('respect');
+  const speedEl = el('speed');
+  const gearEl = el('gear');
+  const carNameEl = el('carname');
+  const carCondEl = el('carcond');
+  const radioEl = el('radio');
+  const weaponEl = el('weapon');
+  const bannerEl = el('banner');
+  const msgEl = el('msg');
+  const map = el('minimap');
+  const mctx = map.getContext('2d');
+
+  let bannerUntil = 0;
+  let msgUntil = 0;
+
+  function showBanner(chapter, title, sub, seconds) {
+    bannerEl.querySelector('.chap').textContent = chapter;
+    bannerEl.querySelector('.title').textContent = title;
+    bannerEl.querySelector('.sub').textContent = sub;
+    bannerEl.style.display = 'block';
+    bannerUntil = performance.now() + seconds * 1000;
   }
 
-  return {
-    showChapter(n, title) {
-      el.chapterKicker.textContent = 'CHAPTER ' + n + '/5';
-      el.chapterTitle.textContent = title;
-      el.chapter.classList.add('show');
-      chapterT = 3.2;
-    },
-    showToast(text) {
-      el.toast.textContent = text;
-      el.toast.classList.add('show');
-      toastT = 2.4;
-    },
-    hideStart() { el.start.classList.add('hidden'); },
-    showStart() { el.start.classList.remove('hidden'); },
-    setHelpVisible(v) { el.help.style.display = v ? 'block' : 'none'; },
-    showEnd(kind) {
-      const map = {
-        busted: ['BUSTED', 'The law caught up with you. $200 bail, back on the streets.'],
-        wasted: ['WASTED', 'Daz went down. The city keeps moving without you.'],
-        done: ['CAMPAIGN COMPLETE', 'All five chapters done. Porto Azul is yours, Daz.'],
-      };
-      const [t, s] = map[kind] || ['GAME OVER', ''];
-      el.endTitle.textContent = t;
-      el.endText.textContent = s;
-      el.end.classList.remove('hidden');
-    },
-    hideEnd() { el.end.classList.add('hidden'); },
-    update(dt) {
-      const P = W.player;
-      const d = W.city.districtAt(P.x, P.z);
-      el.district.textContent = d.name;
-      el.districtSub.textContent = d.flavor;
-      const a = W.missions.active;
-      if (a) {
-        el.mission.textContent = 'MISI ' + a.def.chapter + ' — ' + a.def.title + ' · ' + fmtCash(a.def.payout) + '  ' + a.def.chapter + '/5';
-        el.objective.textContent = a.def.objective;
-        el.timer.textContent = a.timeLeft > 0 ? fmtTimer(a.timeLeft) : '';
-      } else if (W.missions.done) {
-        el.mission.textContent = 'CAMPAIGN COMPLETE';
-        el.objective.textContent = 'Free roam — Porto Azul is yours';
-        el.timer.textContent = '';
-      } else {
-        el.mission.textContent = 'PORTO AZUL II';
-        el.objective.textContent = 'Press ENTER to start';
-        el.timer.textContent = '';
-      }
-      el.clock.textContent = fmtClock(W.S.clockMin) + '  DAY ' + W.S.day;
-      el.cash.textContent = fmtCash(P.cash);
-      const st = W.police.stars();
-      el.stars.textContent = '★'.repeat(st) + '☆'.repeat(5 - st);
-      el.stars.classList.toggle('hot', st >= 4);
-      el.wanted.textContent = st >= 5 ? 'MOST WANTED' : st > 0 ? 'WANTED ' + st + '/5' : '';
-      el.weapon.textContent = 'HORNET SMG  ' + P.mag + ' / ' + P.reserve;
-      el.hpFill.style.width = clamp(P.health, 0, 100) + '%';
-      el.hpNum.textContent = Math.round(P.health);
-      el.arFill.style.width = clamp(P.armour, 0, 100) + '%';
-      el.arNum.textContent = Math.round(P.armour);
-      el.respect.textContent = 'RESPECT LV ' + (1 + Math.floor(P.respect / 3));
-      el.radio.textContent = W.audio.stationName() + ' · ' + W.audio.stationFreq();
-      const kmh = Math.round((P.car ? Math.abs(P.car.speed) : 0) * KMH);
-      el.speed.textContent = String(kmh);
-      el.gear.textContent = 'GEAR ' + Math.min(6, 1 + Math.floor(kmh / 25));
-      el.carName.textContent = P.car ? P.car.model.name : 'ON FOOT';
-      if (chapterT > 0) {
-        chapterT -= dt;
-        if (chapterT <= 0) el.chapter.classList.remove('show');
-      }
-      if (toastT > 0) {
-        toastT -= dt;
-        if (toastT <= 0) el.toast.classList.remove('show');
-      }
-      drawMinimap();
-    },
-  };
+  function hideBanner() { bannerEl.style.display = 'none'; }
+
+  function showMessage(text, seconds) {
+    msgEl.textContent = text;
+    msgEl.style.display = 'block';
+    msgUntil = performance.now() + seconds * 1000;
+  }
+
+  function drawMinimap(state, target) {
+    const S = 190;
+    const scale = S / 460;
+    const toMap = (x, z) => [S / 2 + x * scale, S / 2 + z * scale];
+    mctx.fillStyle = '#0a0618';
+    mctx.fillRect(0, 0, S, S);
+    mctx.strokeStyle = '#3a2f55';
+    mctx.lineWidth = 5;
+    for (const line of ROAD_LINES) {
+      const [x1, y1] = toMap(line, -210);
+      const [x2, y2] = toMap(line, 210);
+      mctx.beginPath(); mctx.moveTo(x1, y1); mctx.lineTo(x2, y2); mctx.stroke();
+      const [x3, y3] = toMap(-210, line);
+      const [x4, y4] = toMap(210, line);
+      mctx.beginPath(); mctx.moveTo(x3, y3); mctx.lineTo(x4, y4); mctx.stroke();
+    }
+    // Route: L-shaped along roads from player to target.
+    if (target) {
+      const [px, py] = toMap(state.playerX, state.playerZ);
+      const [tx, ty] = toMap(target.x, target.z);
+      mctx.strokeStyle = '#ffd75e';
+      mctx.lineWidth = 3;
+      mctx.setLineDash([7, 5]);
+      mctx.beginPath(); mctx.moveTo(px, py); mctx.lineTo(tx, py); mctx.lineTo(tx, ty); mctx.stroke();
+      mctx.setLineDash([]);
+      mctx.fillStyle = '#ffd75e';
+      mctx.beginPath(); mctx.arc(tx, ty, 6, 0, Math.PI * 2); mctx.fill();
+      mctx.fillStyle = '#0a0618';
+      mctx.font = 'bold 9px Arial'; mctx.textAlign = 'center'; mctx.textBaseline = 'middle';
+      mctx.fillText('★', tx, ty + 0.5);
+    }
+    // Traffic dots.
+    mctx.fillStyle = '#9aa0b0';
+    for (const c of state.trafficDots || []) {
+      const [dx, dy] = toMap(c.x, c.z);
+      mctx.fillRect(dx - 1.5, dy - 1.5, 3, 3);
+    }
+    // Cop dots.
+    mctx.fillStyle = '#ff2e4d';
+    for (const c of state.copDots || []) {
+      const [dx, dy] = toMap(c.x, c.z);
+      mctx.beginPath(); mctx.arc(dx, dy, 3.5, 0, Math.PI * 2); mctx.fill();
+    }
+    // Player arrow.
+    const [px, py] = toMap(state.playerX, state.playerZ);
+    mctx.save();
+    mctx.translate(px, py);
+    mctx.rotate(Math.atan2(Math.sin(state.heading), Math.cos(state.heading)) * -1 + Math.PI);
+    mctx.fillStyle = '#ffffff';
+    mctx.beginPath(); mctx.moveTo(0, -8); mctx.lineTo(5, 6); mctx.lineTo(-5, 6); mctx.closePath(); mctx.fill();
+    mctx.restore();
+    // North marker.
+    mctx.fillStyle = '#7df9ff';
+    mctx.font = 'bold 11px Arial'; mctx.textAlign = 'center';
+    mctx.fillText('N', S / 2, 12);
+  }
+
+  function update(state) {
+    const now = performance.now();
+    if (bannerUntil && now > bannerUntil) { hideBanner(); bannerUntil = 0; }
+    if (msgUntil && now > msgUntil) { msgEl.style.display = 'none'; msgUntil = 0; }
+    districtEl.textContent = state.district.name;
+    flavorEl.textContent = state.district.flavor;
+    missionEl.textContent = state.missionLabel;
+    objectiveEl.textContent = state.objective;
+    timerEl.textContent = state.missionActive ? fmtTimer(state.missionTimer) : '—';
+    timerEl.style.color = state.missionTimer < 30 && state.missionActive ? '#ff5a6e' : '#7df9ff';
+    clockEl.textContent = 'DAY ' + state.day + ' · ' + fmtClock(state.clockMinutes);
+    cashEl.textContent = fmtMoney(state.cash);
+    let stars = '';
+    for (let i = 0; i < 5; i += 1) {
+      stars += '<span class="' + (i < state.wanted ? 'lit' : 'dim') + '">' + (i < state.wanted ? STAR_LIT : STAR_DIM) + '</span>';
+    }
+    if (state.wanted >= 5) stars += ' <span class="lit">MOST WANTED</span>';
+    else if (state.wanted >= 3) stars += ' <span class="lit">WANTED</span>';
+    wantedEl.innerHTML = stars;
+    hpFill.style.width = clamp(state.health, 0, 100) + '%';
+    arFill.style.width = clamp(state.armour, 0, 100) + '%';
+    respectEl.textContent = 'RESPECT LV ' + state.respect + " · BENNY'S CREW";
+    if (state.onFoot) {
+      speedEl.innerHTML = Math.round(state.speedKmh) + ' <small>km/h</small>';
+      gearEl.textContent = 'ON FOOT';
+      carNameEl.textContent = 'DAZ';
+      carCondEl.textContent = 'STAMINA 100%';
+    } else {
+      speedEl.innerHTML = Math.round(state.speedKmh) + ' <small>km/h</small>';
+      gearEl.textContent = state.gear === 0 ? 'NEUTRAL' : 'GEAR ' + state.gear;
+      carNameEl.textContent = state.carName;
+      carCondEl.textContent = 'CONDITION ' + Math.round(state.carCondition) + '%';
+    }
+    radioEl.textContent = '♪ ' + state.radioLabel;
+    weaponEl.textContent = state.weaponName + ' · ' + state.ammo + ' / ' + state.ammoReserve;
+    drawMinimap(state, state.target);
+  }
+
+  return { update, showBanner, hideBanner, showMessage };
 }

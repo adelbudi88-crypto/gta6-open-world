@@ -1,230 +1,211 @@
-// Wanted and the law: heat 0–100 maps to 0–5 stars, cop cars and foot cops
-// spawn to match, and a helicopter with a searchlight joins at four stars.
-// Cops are slower than a good car, so escape is always possible.
-import * as THREE from 'three';
+// Police for Porto Azul II: pursuit cars with flashing light bars, foot cops
+// who chase the player on foot, and a helicopter with a searchlight cone.
+// Spawn counts scale with the wanted level; at 5 stars the city is MOST WANTED.
+import * as T from 'three';
+import { makeCarMesh, CAR_DEFS } from './vehicles.js';
 import { clamp } from './rng.js';
-import { MODELS, buildCarMesh } from './vehicles.js';
-import { buildFigure } from './player.js';
 
-export function createPolice(W) {
-  const { scene, city, audio } = W;
-  let heat = 0;
+export function createPolice(scene, rng) {
   const copCars = [];
   const footCops = [];
-  let bustT = 0;
+  const heliGroup = new T.Group();
+  const heliBody = new T.Mesh(
+    new T.BoxGeometry(3.4, 1.4, 6.5),
+    new T.MeshLambertMaterial({ color: 0x1a1a22 })
+  );
+  heliGroup.add(heliBody);
+  const heliStripe = new T.Mesh(
+    new T.BoxGeometry(3.45, 0.4, 6.55),
+    new T.MeshBasicMaterial({ color: 0xffffff })
+  );
+  heliGroup.add(heliStripe);
+  const rotor = new T.Mesh(
+    new T.BoxGeometry(11, 0.12, 0.7),
+    new T.MeshLambertMaterial({ color: 0x33333e })
+  );
+  rotor.position.y = 1.1;
+  heliGroup.add(rotor);
+  const tailRotor = new T.Mesh(
+    new T.BoxGeometry(0.5, 2.2, 0.12),
+    new T.MeshLambertMaterial({ color: 0x33333e })
+  );
+  tailRotor.position.set(0, 0.4, -3.6);
+  heliGroup.add(tailRotor);
+  const coneGeo = new T.ConeGeometry(7, 55, 20, 1, true);
+  const coneMat = new T.MeshBasicMaterial({
+    color: 0xfff2b0, transparent: true, opacity: 0.16,
+    side: T.DoubleSide, depthWrite: false,
+  });
+  const cone = new T.Mesh(coneGeo, coneMat);
+  cone.position.y = -28;
+  cone.rotation.x = Math.PI;
+  heliGroup.add(cone);
+  const spotCircle = new T.Mesh(
+    new T.CircleGeometry(7, 24),
+    new T.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.35 })
+  );
+  spotCircle.rotation.x = -Math.PI / 2;
+  spotCircle.position.y = 0.12;
+  scene.add(spotCircle);
+  heliGroup.visible = false;
+  spotCircle.visible = false;
+  scene.add(heliGroup);
 
-  // Helicopter: body + spinning rotor + a translucent searchlight cone.
-  const heli = new THREE.Group();
-  const hBody = new THREE.Mesh(
-    new THREE.BoxGeometry(3.2, 1.4, 6),
-    new THREE.MeshLambertMaterial({ color: 0x1c2733 }),
-  );
-  const hRotor = new THREE.Mesh(
-    new THREE.BoxGeometry(9, 0.12, 0.5),
-    new THREE.MeshBasicMaterial({ color: 0x888888 }),
-  );
-  hRotor.position.y = 1.1;
-  const coneGeo = new THREE.ConeGeometry(7, 34, 20, 1, true);
-  coneGeo.translate(0, -17, 0);
-  const cone = new THREE.Mesh(
-    coneGeo,
-    new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false }),
-  );
-  heli.add(hBody, hRotor, cone);
-  heli.visible = false;
-  scene.add(heli);
-  const pool = new THREE.Mesh(
-    new THREE.CircleGeometry(6.5, 24),
-    new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.1, depthWrite: false }),
-  );
-  pool.rotation.x = -Math.PI / 2;
-  pool.position.y = 0.06;
-  pool.visible = false;
-  scene.add(pool);
-
-  function stars() { return heat <= 0 ? 0 : Math.min(5, Math.ceil(heat / 20)); }
+  let heliAngle = 0;
 
   function spawnCopCar(x, z) {
-    const car = {
-      model: MODELS[5], x, z, heading: 0, speed: 0,
-      mesh: buildCarMesh(MODELS[5], { lightBar: true, bodyColor: 0x14161c }),
-      kind: 'cop', hp: 100, dead: false,
-    };
-    car.mesh.group.position.set(x, 0, z);
-    scene.add(car.mesh.group);
+    const { group, lightBar } = makeCarMesh(CAR_DEFS.azul, true);
+    group.position.set(x, 0, z);
+    scene.add(group);
+    const car = { group, lightBar, speed: 0, heading: 0, ram: 0 };
     copCars.push(car);
     return car;
   }
 
   function spawnFootCop(x, z) {
-    const mesh = buildFigure(0x1c2a4a, 0x14161c);
-    mesh.position.set(x, 0, z);
-    scene.add(mesh);
-    const cop = { x, z, heading: 0, hp: 100, dead: false, mesh, speed: 7.4 };
+    const g = new T.Group();
+    const navy = new T.MeshLambertMaterial({ color: 0x1a2a4a });
+    const skin = new T.MeshLambertMaterial({ color: 0xe0ac69 });
+    const body = new T.Mesh(new T.BoxGeometry(0.6, 0.9, 0.34), navy);
+    body.position.y = 1.15; g.add(body);
+    const head = new T.Mesh(new T.BoxGeometry(0.34, 0.34, 0.34), skin);
+    head.position.y = 1.78; g.add(head);
+    const cap = new T.Mesh(new T.BoxGeometry(0.4, 0.14, 0.4), navy);
+    cap.position.y = 1.98; g.add(cap);
+    g.position.set(x, 0, z);
+    scene.add(g);
+    const cop = { group: g, hp: 100 };
     footCops.push(cop);
     return cop;
   }
 
-  function removeCar(car) {
-    scene.remove(car.mesh.group);
-    const i = copCars.indexOf(car);
-    if (i >= 0) copCars.splice(i, 1);
-  }
-  function removeCop(cop) {
-    scene.remove(cop.mesh);
-    const i = footCops.indexOf(cop);
-    if (i >= 0) footCops.splice(i, 1);
+  function wantedCarCount(wanted) {
+    return wanted <= 0 ? 0 : wanted <= 1 ? 1 : wanted <= 2 ? 2 : wanted <= 3 ? 3 : wanted <= 4 ? 4 : 6;
   }
 
-  function ringSpot(cx, cz, angle, dist) {
-    return { x: cx + Math.sin(angle) * dist, z: cz + Math.cos(angle) * dist };
+  // Staging helpers used by shots.js: pin exact cop / heli poses for a capture.
+  function ensureCops(n, px, pz) {
+    while (copCars.length < n) {
+      const a = rng.range(0, Math.PI * 2);
+      spawnCopCar(px + Math.cos(a) * 55, pz + Math.sin(a) * 55);
+    }
+    while (copCars.length > n) {
+      const c = copCars.pop();
+      scene.remove(c.group);
+    }
+  }
+  function placeCop(i, x, z, heading) {
+    const c = copCars[i];
+    if (!c) return;
+    c.group.position.set(x, 0, z);
+    c.group.rotation.y = heading;
+    c.heading = heading;
+    c.speed = 0;
+  }
+  function ensureFootCops(n, px, pz) {
+    while (footCops.length < n) {
+      const a = rng.range(0, Math.PI * 2);
+      spawnFootCop(px + Math.cos(a) * 26, pz + Math.sin(a) * 26);
+    }
+    while (footCops.length > n) {
+      const c = footCops.pop();
+      scene.remove(c.group);
+    }
+  }
+  function placeFootCop(i, x, z) {
+    const c = footCops[i];
+    if (!c) return;
+    c.group.position.set(x, 0, z);
+    c.group.rotation.y = Math.atan2(0, 1);
+  }
+  function placeHeli(x, z, on) {
+    heliGroup.visible = on;
+    spotCircle.visible = on;
+    if (!on) return;
+    heliGroup.position.set(x + 10, 58, z - 12);
+    heliGroup.rotation.y = 0.6;
+    spotCircle.position.set(x, 0.12, z);
   }
 
   return {
-    copCars, footCops,
-    get heat() { return heat; },
-    stars,
-    addHeat(n) { heat = clamp(heat + n, 0, 100); },
-    setHeat(n) { heat = clamp(n, 0, 100); },
-    clearWanted() { heat = 0; bustT = 0; },
-    spawnCopCar, spawnFootCop,
-    clearAll() {
-      for (const c of [...copCars]) removeCar(c);
-      for (const c of [...footCops]) removeCop(c);
-      heat = 0;
-      heli.visible = false;
-      pool.visible = false;
-      audio.stopSiren();
-    },
-    // Stage a pursuit behind the player's heading: cops converge from the
-    // rear and the flanks, never parked dead-centre ahead of the camera.
-    stagePursuit(x, z, heading) {
-      const spots = [
-        { a: heading + Math.PI, d: 26 },
-        { a: heading + Math.PI * 0.72, d: 30 },
-        { a: heading - Math.PI * 0.72, d: 30 },
-      ];
-      for (const s of spots) {
-        const p = ringSpot(x, z, s.a, s.d);
-        const car = spawnCopCar(p.x, p.z);
-        car.heading = Math.atan2(x - p.x, z - p.z);
-        car.speed = 18;
-      }
-    },
-    // Foot scene: cops in a ring ahead and to the sides, cars off the
-    // banner's centre band so chapter text stays readable.
-    stageFootScene(x, z) {
-      const carSpots = [
-        { a: Math.PI * 0.85, d: 22 }, { a: -Math.PI * 0.85, d: 22 },
-        { a: Math.PI * 0.35, d: 26 }, { a: -Math.PI * 0.35, d: 26 },
-      ];
-      for (const s of carSpots) {
-        const p = ringSpot(x, z, s.a, s.d);
-        const car = spawnCopCar(p.x, p.z);
-        car.heading = Math.atan2(x - p.x, z - p.z);
-        car.speed = 0;
-      }
-      const copSpots = [
-        { a: Math.PI * 0.15, d: 10 }, { a: -Math.PI * 0.2, d: 12 }, { a: Math.PI * 0.5, d: 11 },
-      ];
-      for (const s of copSpots) {
-        const p = ringSpot(x, z, s.a, s.d);
-        spawnFootCop(p.x, p.z);
-      }
-    },
-    update(dt, t) {
-      const P = W.player;
-      const st = stars();
-      if (st > 0) audio.startSiren(); else audio.stopSiren();
-      // Staged shots freeze the heat and the roster: the frame must keep
-      // its staged stars and its staged cops. Pursuit still runs below.
-      if (!W.S.shot) {
-      // Heat fades fast when the law loses sight of the player.
-      let nearest = 999;
-      for (const c of copCars) nearest = Math.min(nearest, Math.hypot(c.x - P.x, c.z - P.z));
-      for (const c of footCops) nearest = Math.min(nearest, Math.hypot(c.x - P.x, c.z - P.z));
-      heat = clamp(heat - (nearest > 45 ? 2.5 : 0.4) * dt, 0, 100);
-
-      // Spawn to match the star count.
-      const wantCars = Math.min(st, 5);
-      while (copCars.length < wantCars) {
-        const a = W.rng.range(0, Math.PI * 2);
-        const p = ringSpot(P.x, P.z, a, W.rng.range(60, 90));
-        const c = city.clampToCity(p.x, p.z, 8);
-        spawnCopCar(c.x, c.z);
-      }
-      while (copCars.length > wantCars) removeCar(copCars[copCars.length - 1]);
-      const wantFoot = st >= 2 ? Math.min(3, st - 1) : 0;
-      while (footCops.length < wantFoot) {
-        const a = W.rng.range(0, Math.PI * 2);
-        const p = ringSpot(P.x, P.z, a, W.rng.range(25, 40));
-        spawnFootCop(p.x, p.z);
-      }
-      while (footCops.length > wantFoot) removeCop(footCops[footCops.length - 1]);
-      }
-
-      // Cop cars chase and ram.
+    copCars,
+    footCops,
+    heliGroup,
+    ensureCops,
+    placeCop,
+    ensureFootCops,
+    placeFootCop,
+    placeHeli,
+    update(dt, frozen, state, px, pz, playerHeading, onFoot, t) {
+      if (frozen) return;
+      // Flash every light bar.
+      const phase = Math.floor(t * 6) % 2 === 0;
       for (const c of copCars) {
-        const dx = P.x - c.x, dz = P.z - c.z;
-        const d = Math.hypot(dx, dz);
-        if (d > 170) { removeCar(c); continue; }
-        const want = Math.atan2(dx, dz);
-        let dh = want - c.heading;
+        if (c.lightBar) {
+          c.lightBar.children[0].material.color.setHex(phase ? 0xff2e4d : 0x550000);
+          c.lightBar.children[1].material.color.setHex(phase ? 0x220066 : 0x2e7bff);
+        }
+      }
+      const want = state.wanted;
+      const needCars = wantedCarCount(want);
+      while (copCars.length < needCars) {
+        const a = rng.range(0, Math.PI * 2);
+        spawnCopCar(px + Math.cos(a) * 55, pz + Math.sin(a) * 55);
+      }
+      while (copCars.length > needCars) {
+        const c = copCars.pop();
+        scene.remove(c.group);
+      }
+      const needFoot = onFoot ? (want >= 1 ? Math.min(want, 4) : 0) : 0;
+      while (footCops.length < needFoot) {
+        const a = rng.range(0, Math.PI * 2);
+        spawnFootCop(px + Math.cos(a) * 26, pz + Math.sin(a) * 26);
+      }
+      while (footCops.length > needFoot) {
+        const c = footCops.pop();
+        scene.remove(c.group);
+      }
+      // Pursuit cars steer at the player and ram.
+      for (const c of copCars) {
+        const dx = px - c.group.position.x;
+        const dz = pz - c.group.position.z;
+        const dist = Math.hypot(dx, dz) || 1;
+        const targetHeading = Math.atan2(dx, dz);
+        let dh = targetHeading - c.heading;
         while (dh > Math.PI) dh -= Math.PI * 2;
         while (dh < -Math.PI) dh += Math.PI * 2;
-        c.heading += clamp(dh, -1.8 * dt, 1.8 * dt);
-        c.speed = Math.min(29, c.speed + 10 * dt);
-        const nx = c.x + Math.sin(c.heading) * c.speed * dt;
-        const nz = c.z + Math.cos(c.heading) * c.speed * dt;
-        if (!city.collides(nx, nz, 1.6)) { c.x = nx; c.z = nz; }
-        else c.speed *= 0.5;
-        c.mesh.group.position.set(c.x, 0, c.z);
-        c.mesh.group.rotation.y = c.heading;
-        if (d < 4.5 && P.car) {
-          P.car.speed *= 0.96;
-          if (W.rng.chance(0.1)) audio.crash();
+        c.heading += clamp(dh, -2.4 * dt, 2.4 * dt);
+        const cruise = want >= 5 ? 30 : want >= 3 ? 26 : 21;
+        c.speed = clamp(c.speed + (cruise - c.speed) * dt * 0.6, 0, 34);
+        c.group.position.x += Math.sin(c.heading) * c.speed * dt;
+        c.group.position.z += Math.cos(c.heading) * c.speed * dt;
+        c.group.rotation.y = c.heading;
+        if (dist < 4.5) {
+          c.ram = 0.5;
+          state.health = clamp(state.health - 12 * dt, 0, 100);
         }
       }
-
-      // Foot cops run the player down; touching one too long means busted.
-      let touching = false;
+      // Foot cops run the player down.
       for (const c of footCops) {
-        if (c.dead) { removeCop(c); continue; }
-        const dx = P.x - c.x, dz = P.z - c.z;
-        const d = Math.hypot(dx, dz);
-        if (d > 170) { removeCop(c); continue; }
-        c.heading = Math.atan2(dx, dz);
-        c.x += Math.sin(c.heading) * c.speed * dt;
-        c.z += Math.cos(c.heading) * c.speed * dt;
-        c.mesh.position.set(c.x, 0, c.z);
-        c.mesh.rotation.y = c.heading;
-        if (d < 2.2 && !P.inCar && !P.noBust) touching = true;
+        const dx = px - c.group.position.x;
+        const dz = pz - c.group.position.z;
+        const dist = Math.hypot(dx, dz) || 1;
+        c.group.position.x += (dx / dist) * 5.2 * dt;
+        c.group.position.z += (dz / dist) * 5.2 * dt;
+        c.group.rotation.y = Math.atan2(dx, dz);
+        if (dist < 1.6) state.health = clamp(state.health - 10 * dt, 0, 100);
       }
-      if (touching) {
-        bustT += dt;
-        if (bustT > 2.5) {
-          bustT = 0;
-          P.cash = Math.max(0, P.cash - 200);
-          heat = 0;
-          W.S.over = 'busted';
-          audio.busted();
-        }
-      } else {
-        bustT = Math.max(0, bustT - dt);
-      }
-
-      // Helicopter at four stars and up.
-      const heliOn = st >= 4;
-      heli.visible = heliOn;
-      pool.visible = heliOn;
+      // Helicopter circles above at wanted 3+.
+      const heliOn = want >= 3;
+      heliGroup.visible = heliOn;
+      spotCircle.visible = heliOn;
       if (heliOn) {
-        const tx = P.x + 6, ty = 40, tz = P.z + 6;
-        heli.position.x += (tx - heli.position.x) * Math.min(1, dt * 1.2);
-        heli.position.y += (ty - heli.position.y) * Math.min(1, dt * 1.2);
-        heli.position.z += (tz - heli.position.z) * Math.min(1, dt * 1.2);
-        hRotor.rotation.y = t * 22;
-        // The cone hangs straight down, so the light pool sits on the player.
-        pool.position.set(P.x, 0.06, P.z);
+        heliAngle += dt * 0.45;
+        heliGroup.position.set(px + Math.cos(heliAngle) * 26, 58, pz + Math.sin(heliAngle) * 26);
+        heliGroup.rotation.y = Math.atan2(px - heliGroup.position.x, pz - heliGroup.position.z);
+        rotor.rotation.y += dt * 22;
+        cone.lookAt(px, 0, pz);
+        spotCircle.position.set(px, 0.12, pz);
       }
     },
   };

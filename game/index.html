@@ -3,120 +3,79 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Porto Azul II — 5 story missions, police chases, heists, radio and saves</title>
+<title>PORTO AZUL II — 5 story missions, police chases, heists, radio and saves</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #14101d; font-family: Arial, Helvetica, sans-serif; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  .hud { position: fixed; z-index: 5; color: #fff; pointer-events: none; text-shadow: 0 2px 4px rgba(0,0,0,.85); }
-  .panel { background: rgba(8,6,18,.55); border-radius: 8px; padding: 8px 12px; }
-  /* top-left: district */
-  #hud-tl { top: 14px; left: 14px; border-left: 4px solid #ffd23c; padding-left: 10px; }
-  #hud-district { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
-  #hud-district-sub { font-size: 12px; letter-spacing: 1px; color: #d8d0ff; margin-top: 2px; }
-  /* top-centre: mission */
-  #hud-tc { top: 12px; left: 50%; transform: translateX(-50%); text-align: center; }
-  #hud-mission { font-size: 15px; font-weight: 800; color: #ffd23c; letter-spacing: .5px; }
-  #hud-objective { display: inline-block; margin-top: 4px; font-size: 14px; background: rgba(8,6,18,.6); padding: 4px 10px; border-radius: 6px; }
-  #hud-timer { margin-top: 3px; font-size: 15px; font-weight: 700; }
-  /* top-right: clock, cash, wanted, vitals */
-  #hud-tr { top: 12px; right: 14px; text-align: right; min-width: 240px; }
-  #hud-clock { font-size: 20px; font-weight: 800; }
-  #hud-clock span { color: #7dd8ff; font-size: 13px; font-weight: 700; }
-  #hud-cash { font-size: 27px; font-weight: 800; color: #5cff8a; }
-  #hud-stars { font-size: 20px; letter-spacing: 3px; color: #ffd23c; }
-  #hud-stars.hot { color: #ff3b3b; }
-  #hud-wanted { font-size: 13px; font-weight: 800; letter-spacing: 1px; color: #ffb03c; min-height: 16px; }
-  #hud-weapon { font-size: 14px; font-weight: 700; color: #ffe9a0; margin-top: 2px; }
-  .bar-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 4px; font-size: 11px; font-weight: 700; }
-  .bar { width: 130px; height: 9px; background: rgba(255,255,255,.18); border-radius: 5px; overflow: hidden; }
-  .bar > div { height: 100%; }
-  #hud-hp-fill { background: #37d67a; }
-  #hud-ar-fill { background: #3d7bff; }
-  #hud-respect { font-size: 12px; font-weight: 800; color: #ffb03c; margin-top: 4px; }
-  /* bottom-left: minimap */
-  #hud-minimap { position: fixed; left: 16px; bottom: 16px; z-index: 5; width: 200px; height: 200px; border-radius: 50%; border: 3px solid rgba(255,255,255,.65); box-shadow: 0 2px 10px rgba(0,0,0,.6); }
-  /* bottom-right: speedometer */
-  #hud-br { right: 18px; bottom: 18px; width: 150px; height: 150px; border-radius: 50%; border: 5px solid rgba(255,255,255,.25); border-top-color: #ffd23c; border-right-color: #ffd23c; background: rgba(8,6,18,.55); text-align: center; padding-top: 26px; box-sizing: border-box; }
-  #hud-speed { font-size: 58px; font-weight: 800; line-height: 1; }
-  #hud-speed-unit { font-size: 12px; letter-spacing: 2px; color: #d8d0ff; }
-  #hud-gear { font-size: 13px; font-weight: 800; color: #ffd23c; margin-top: 2px; }
-  #hud-car { font-size: 12px; font-weight: 700; margin-top: 2px; }
-  /* bottom-centre: radio + help */
-  #hud-bc { bottom: 14px; left: 50%; transform: translateX(-50%); text-align: center; }
-  #hud-radio { display: inline-block; font-size: 14px; font-weight: 800; color: #7dd8ff; background: rgba(8,6,18,.6); padding: 5px 12px; border-radius: 6px; }
-  #hud-help { margin-top: 5px; font-size: 11px; color: #cfc8ee; }
-  /* centre: chapter banner + toast */
-  #hud-chapter { top: 34%; left: 50%; transform: translate(-50%, -50%) scale(.96); text-align: center; opacity: 0; transition: opacity .25s, transform .25s; }
-  #hud-chapter.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  #hud-chapter-kicker { font-size: 26px; font-weight: 800; color: #ffd23c; letter-spacing: 4px; }
-  #hud-chapter-title { font-size: 44px; font-weight: 800; margin-top: 2px; }
-  #hud-toast { top: 58%; left: 50%; transform: translateX(-50%); font-size: 16px; font-weight: 800; color: #ffd23c; opacity: 0; transition: opacity .2s; }
-  #hud-toast.show { opacity: 1; }
-  /* overlays */
-  .overlay { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; background: radial-gradient(ellipse at center, rgba(40,20,80,.88), rgba(8,6,18,.96)); pointer-events: auto; cursor: pointer; }
-  .overlay.hidden { display: none; }
-  .overlay h1 { font-size: 56px; margin: 0; letter-spacing: 3px; }
-  .overlay h1 span { color: #ffd23c; }
-  .overlay h2 { font-size: 20px; color: #ffd23c; margin: 8px 0 0; letter-spacing: 1px; }
-  .overlay p { max-width: 620px; font-size: 15px; line-height: 1.55; color: #e8e2ff; }
-  .overlay .keys { font-size: 13px; color: #bdb4e8; line-height: 1.9; }
-  .overlay .cta { margin-top: 18px; font-size: 18px; font-weight: 800; color: #5cff8a; animation: pulse 1.4s infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a0f2e; font-family: 'Segoe UI', Arial, sans-serif; }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.9); }
+  .panel { background: rgba(8, 6, 20, .55); border: 1px solid rgba(255, 255, 255, .14); border-radius: 8px; padding: 8px 12px; backdrop-filter: blur(2px); }
+  #topleft { position: absolute; top: 14px; left: 14px; }
+  #district { font-size: 26px; font-weight: 800; letter-spacing: 2px; color: #ffd75e; }
+  #flavor { font-size: 12px; letter-spacing: 1px; color: #e8e0ff; opacity: .9; }
+  #topcenter { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); text-align: center; min-width: 380px; }
+  #mission { font-size: 17px; font-weight: 700; letter-spacing: 1px; }
+  #objective { font-size: 12px; color: #ffe9a8; }
+  #timer { font-size: 22px; font-weight: 800; color: #7df9ff; }
+  #topright { position: absolute; top: 14px; right: 14px; text-align: right; }
+  #clock { font-size: 15px; font-weight: 700; letter-spacing: 1px; }
+  #cash { font-size: 26px; font-weight: 800; color: #7dff9a; }
+  #wanted { font-size: 22px; letter-spacing: 3px; color: #ffb3c0; }
+  #wanted .lit { color: #ff2e4d; }
+  #wanted .dim { color: rgba(255,255,255,.28); }
+  #bars { margin-top: 4px; font-size: 12px; font-weight: 700; }
+  .bar { display: inline-block; width: 110px; height: 9px; background: rgba(255,255,255,.22); border-radius: 4px; overflow: hidden; vertical-align: middle; margin-left: 4px; }
+  .bar > i { display: block; height: 100%; }
+  #hpbar > i { background: #37e05a; } #arbar > i { background: #4db8ff; }
+  #respect { font-size: 12px; color: #ffd75e; margin-top: 2px; }
+  #bottomleft { position: absolute; left: 14px; bottom: 14px; }
+  #minimap { display: block; border-radius: 50%; border: 3px solid rgba(255,255,255,.35); background: #0a0618; box-shadow: 0 0 18px rgba(0,0,0,.6); }
+  #bottomright { position: absolute; right: 14px; bottom: 14px; text-align: right; }
+  #speed { font-size: 44px; font-weight: 800; line-height: 1; }
+  #speed small { font-size: 15px; color: #cfe8ff; }
+  #gear { font-size: 15px; font-weight: 800; color: #7df9ff; }
+  #carname { font-size: 15px; font-weight: 700; letter-spacing: 1px; }
+  #carcond { font-size: 11px; color: #cfe8ff; }
+  #bottomcenter { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); text-align: center; }
+  #radio { font-size: 14px; font-weight: 700; color: #ff9de2; letter-spacing: 1px; }
+  #weapon { font-size: 13px; font-weight: 700; margin-top: 2px; }
+  #banner { position: absolute; top: 24%; left: 0; right: 0; text-align: center; display: none; }
+  #banner .chap { font-size: 20px; letter-spacing: 6px; color: #7df9ff; font-weight: 700; }
+  #banner .title { font-size: 44px; font-weight: 900; letter-spacing: 3px; color: #fff; }
+  #banner .sub { font-size: 15px; color: #ffe9a8; letter-spacing: 1px; }
+  #msg { position: absolute; top: 62%; left: 0; right: 0; text-align: center; font-size: 18px; font-weight: 700; color: #ffe9a8; display: none; }
+  #hint { position: absolute; bottom: 96px; left: 0; right: 0; text-align: center; font-size: 12px; color: rgba(255,255,255,.75); }
+  #title { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(180deg, rgba(26,8,54,.88), rgba(8,4,20,.94)); color: #fff; z-index: 5; text-align: center; }
+  #title h1 { font-size: 64px; margin: 0; letter-spacing: 6px; color: #ffd75e; text-shadow: 0 0 30px rgba(255, 120, 220, .7); }
+  #title h2 { font-size: 18px; font-weight: 400; letter-spacing: 2px; color: #e8e0ff; margin: 8px 0 24px; }
+  #title .feat { font-size: 14px; line-height: 1.9; color: #cfe8ff; }
+  #title .press { margin-top: 30px; font-size: 18px; font-weight: 700; color: #7df9ff; animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: .35; } }
+  #garage { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(10, 8, 26, .96); border: 2px solid #ffd75e; border-radius: 12px; padding: 22px 28px; color: #fff; z-index: 6; display: none; min-width: 340px; }
+  #garage h3 { margin: 0 0 10px; color: #ffd75e; letter-spacing: 2px; }
+  #garage .row { display: flex; justify-content: space-between; gap: 18px; font-size: 14px; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.12); }
+  #garage .row b { color: #7dff9a; }
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Porto Azul II: open-world crime game — drive, steal cars, outrun the police"></canvas>
+<canvas id="view"></canvas>
+<div id="hud">
+  <div id="topleft" class="panel"><div id="district">TORRE PLAZA</div><div id="flavor">GLASS TOWERS AND OLD MONEY</div></div>
+  <div id="topcenter" class="panel"><div id="mission">CHAPTER 2/5: TONO'S DEBT</div><div id="objective">Collect the cash from Tono — reach the gold marker</div><div id="timer">2:14</div></div>
+  <div id="topright" class="panel"><div id="clock">DAY 1 · 19:07</div><div id="cash">$18,450</div><div id="wanted"></div><div id="bars"><div>HEALTH <span class="bar" id="hpbar"><i style="width:100%"></i></span></div><div>ARMOUR <span class="bar" id="arbar"><i style="width:40%"></i></span></div></div><div id="respect">RESPECT LV 4 · BENNY'S CREW</div></div>
+  <div id="bottomleft"><canvas id="minimap" width="190" height="190"></canvas></div>
+  <div id="bottomright" class="panel"><div id="speed">137 <small>km/h</small></div><div id="gear">GEAR 6</div><div id="carname">COMET GT</div><div id="carcond">CONDITION 100%</div></div>
+  <div id="bottomcenter"><div id="radio">♪ SOL FM 95.4 · SYNTHWAVE</div><div id="weapon">HORNET SMG · 24 / 120</div></div>
+  <div id="banner"><div class="chap">CHAPTER 2/5</div><div class="title">TONO'S DEBT</div><div class="sub">Collect the cash — no witnesses, no mercy</div></div>
+  <div id="msg"></div>
+  <div id="hint">WASD drive / walk · E enter car · F shoot · C radio · B garage · P pause</div>
+</div>
+<div id="title"><h1>PORTO AZUL II</h1><h2>5 STORY MISSIONS · POLICE CHASES · HEISTS · RADIO · SAVES</h2><div class="feat">Daz is back in Porto Azul. Benny needs his money, Tono owes it,<br>Mara has the vault codes, and the whole city is watching.<br><br>WASD drive &amp; walk · E enter / exit car · F shoot · R reload<br>C radio · B Benny's Garage · P pause · mouse drag orbits camera</div><div class="press" id="presskey">PRESS ENTER TO START</div></div>
+<div id="garage"><h3>BENNY'S GARAGE — UPGRADES</h3><div id="garage-rows"></div><div style="margin-top:10px;font-size:12px;color:#cfe8ff">Keys 1 / 2 / 3 buy · B or Esc closes</div></div>
 <p id="status" role="status" aria-live="polite"></p>
-
-<div class="hud" id="hud-tl"><div id="hud-district">TORRE PLAZA</div><div id="hud-district-sub">HEART OF THE CITY</div></div>
-<div class="hud" id="hud-tc">
-  <div id="hud-mission">PORTO AZUL II</div>
-  <div><span id="hud-objective">Press ENTER to start</span></div>
-  <div id="hud-timer"></div>
-</div>
-<div class="hud panel" id="hud-tr">
-  <div id="hud-clock">19:07 <span>DAY 1</span></div>
-  <div id="hud-cash">$0</div>
-  <div id="hud-stars">☆☆☆☆☆</div>
-  <div id="hud-wanted"></div>
-  <div id="hud-weapon">HORNET SMG 30 / 120</div>
-  <div class="bar-row">HEALTH <div class="bar"><div id="hud-hp-fill" style="width:100%"></div></div><span id="hud-hp-num">100</span></div>
-  <div class="bar-row">ARMOUR <div class="bar"><div id="hud-ar-fill" style="width:0%"></div></div><span id="hud-ar-num">0</span></div>
-  <div id="hud-respect">RESPECT LV 1</div>
-</div>
-<canvas id="hud-minimap" width="200" height="200"></canvas>
-<div class="hud" id="hud-br">
-  <div id="hud-speed">0</div>
-  <div id="hud-speed-unit">KM/J</div>
-  <div id="hud-gear">GEAR 1</div>
-  <div id="hud-car">ON FOOT</div>
-</div>
-<div class="hud" id="hud-bc">
-  <div id="hud-radio">SOL FM · 95.4 · SYNTHWAVE</div>
-  <div id="hud-help">WASD move · E car · Click shoot · R reload · G garage · C radio · M mute · P pause</div>
-</div>
-<div class="hud" id="hud-chapter"><div id="hud-chapter-kicker">CHAPTER 1/5</div><div id="hud-chapter-title">First Wheels</div></div>
-<div class="hud" id="hud-toast"></div>
-
-<div class="overlay" id="overlay-start">
-  <h1>PORTO <span>AZUL</span> II</h1>
-  <h2>5 STORY MISSIONS · POLICE CHASES · HEISTS · RADIO · SAVES</h2>
-  <p>Daz is back in Porto Azul. Benny needs wheels, Tono owes money, and the Casino Royale vault is waiting. Steal cars, outrun the law at dusk, pull the Vault Job and escape with the cash — the city remembers everything.</p>
-  <div class="keys">WASD / arrows — move &amp; drive &nbsp;·&nbsp; Mouse — look &nbsp;·&nbsp; E — enter / exit car<br>Click — shoot &nbsp;·&nbsp; R — reload &nbsp;·&nbsp; F — punch &nbsp;·&nbsp; G — garage upgrade<br>C — radio &nbsp;·&nbsp; M — mute &nbsp;·&nbsp; P — pause &nbsp;·&nbsp; Shift — sprint</div>
-  <div class="cta">CLICK OR PRESS ENTER TO START</div>
-</div>
-<div class="overlay hidden" id="overlay-pause">
-  <h1>PAUSED</h1>
-  <p>Press P to resume.</p>
-</div>
-<div class="overlay hidden" id="overlay-end">
-  <h1 id="overlay-end-title">BUSTED</h1>
-  <p id="overlay-end-text"></p>
-  <div class="cta">PRESS ENTER TO CONTINUE</div>
-</div>
-
-<script type="importmap">{"imports": {"three": "./vendor/three.module.min.js"}}</script>
+<script type="importmap">
+{"imports": {"three": "./vendor/three.module.min.js"}}
+</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

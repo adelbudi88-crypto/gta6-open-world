@@ -1,216 +1,110 @@
-// Daz, the player: a box figure on foot, a driver in a car, a shooter with
-// an SMG. Cash, respect, health and armour live here; the world reads them
-// for the HUD and the missions spend them.
-import * as THREE from 'three';
+// Daz, the player: on foot (walk / run / shoot) and behind the wheel
+// (arcade driving with gears, boost and handbrake). One mesh for the body,
+// one car mesh swapped in when driving.
+import * as T from 'three';
+import { makeCarMesh, CAR_DEFS } from './vehicles.js';
 import { clamp } from './rng.js';
 
-export function buildFigure(shirt, pants, skin = 0xd8a077) {
-  const g = new THREE.Group();
-  const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.0, 0.45), mat(shirt));
-  torso.position.y = 1.05;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), mat(skin));
-  head.position.y = 1.85;
-  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.16, 0.54), mat(0xc22a2a));
-  cap.position.y = 2.12;
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.8, 0.4), mat(pants));
-  legL.position.set(-0.22, 0.4, 0);
-  const legR = legL.clone();
-  legR.position.x = 0.22;
-  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.85, 0.3), mat(shirt));
-  armL.position.set(-0.58, 1.1, 0);
-  const armR = armL.clone();
-  armR.position.x = 0.58;
-  g.add(torso, head, cap, legL, legR, armL, armR);
-  g.userData = { legL, legR, armL, armR };
-  return g;
-}
+export function createPlayer(scene) {
+  const group = new T.Group();
+  const jacket = new T.MeshLambertMaterial({ color: 0xd7263d });
+  const skin = new T.MeshLambertMaterial({ color: 0xe0ac69 });
+  const jeans = new T.MeshLambertMaterial({ color: 0x2a3a5a });
+  const body = new T.Mesh(new T.BoxGeometry(0.62, 0.9, 0.36), jacket);
+  body.position.y = 1.18; group.add(body);
+  const head = new T.Mesh(new T.BoxGeometry(0.36, 0.36, 0.36), skin);
+  head.position.y = 1.84; group.add(head);
+  const cap = new T.Mesh(new T.BoxGeometry(0.42, 0.14, 0.42), new T.MeshLambertMaterial({ color: 0x111118 }));
+  cap.position.y = 2.04; group.add(cap);
+  const legL = new T.Mesh(new T.BoxGeometry(0.22, 0.75, 0.22), jeans);
+  legL.position.set(-0.15, 0.38, 0); group.add(legL);
+  const legR = new T.Mesh(new T.BoxGeometry(0.22, 0.75, 0.22), jeans);
+  legR.position.set(0.15, 0.38, 0); group.add(legR);
+  const gun = new T.Mesh(new T.BoxGeometry(0.12, 0.12, 0.7), new T.MeshLambertMaterial({ color: 0x111118 }));
+  gun.position.set(0.35, 1.25, 0.4); group.add(gun);
+  scene.add(group);
 
-export function createPlayer(W) {
-  const { scene, city, audio } = W;
-  const figure = buildFigure(0x2a6fd8, 0x1c1c26);
-  scene.add(figure);
+  let carMesh = null;
+  let carDef = CAR_DEFS.azul;
 
-  const P = {
-    x: 0, z: 60, heading: 0, speed: 0,
-    health: 100, armour: 0, cash: 0, respect: 0,
-    mag: 30, reserve: 120, inCar: false, car: null,
-    lastDamage: -99, walkPhase: 0, dead: false,
-  };
-
-  let tracer = null;
-  let tracerT = 0;
-
-  function aimDir() {
-    return { x: Math.sin(W.camYaw), z: Math.cos(W.camYaw) };
-  }
-
-  function shootAt(targets) {
-    if (P.mag <= 0) { audio.click(); return false; }
-    P.mag--;
-    audio.gunshot();
-    W.police?.addHeat(8);
-    const dir = aimDir();
-    const ox = P.x, oz = P.z;
-    let best = null, bd = 45;
-    for (const t of targets) {
-      if (t.dead) continue;
-      const dx = t.x - ox, dz = t.z - oz;
-      const d = Math.hypot(dx, dz);
-      if (d > 45 || d < 0.5) continue;
-      const dot = (dx * dir.x + dz * dir.z) / d;
-      if (dot < 0.94) continue;
-      if (d < bd) { bd = d; best = t; }
-    }
-    const hx = ox + dir.x * (best ? bd : 45);
-    const hz = oz + dir.z * (best ? bd : 45);
-    if (!tracer) {
-      tracer = new THREE.Mesh(
-        new THREE.BoxGeometry(0.06, 0.06, 1),
-        new THREE.MeshBasicMaterial({ color: 0xffe9a0, transparent: true }),
-      );
-      scene.add(tracer);
-    }
-    const mid = { x: (ox + hx) / 2, y: 1.35, z: (oz + hz) / 2 };
-    tracer.position.set(mid.x, mid.y, mid.z);
-    tracer.lookAt(hx, 1.35, hz);
-    tracer.scale.set(1, 1, Math.max(0.1, bd));
-    tracer.material.opacity = 0.95;
-    tracerT = 0.09;
-    if (best) {
-      best.hp -= 34;
-      if (best.hp <= 0) { best.dead = true; if (best.mesh) best.mesh.visible = false; }
-      return true;
-    }
-    return false;
-  }
-
-  // Methods live on the same object the world reads, so health, cash and
-  // position never go stale between the player and its callers.
-  P.figure = figure;
-  Object.assign(P, {
-    get state() { return P; },
-    setStats(o) {
-      if (o.cash != null) P.cash = o.cash;
-      if (o.respect != null) P.respect = o.respect;
-      if (o.health != null) P.health = o.health;
-      if (o.armour != null) P.armour = o.armour;
-      if (o.mag != null) P.mag = o.mag;
-      if (o.reserve != null) P.reserve = o.reserve;
-      if (o.noBust) P.noBust = true;
+  return {
+    group,
+    legL,
+    legR,
+    gun,
+    x: 0, z: 0, heading: 0,
+    speed: 0, // m/s, signed; display converts to km/h
+    onFoot: true,
+    carKey: 'azul',
+    walkPhase: 0,
+    get carDef() { return carDef; },
+    get speedKmh() { return Math.abs(this.speed) * 3.6; },
+    get gear() {
+      const kmh = this.speedKmh;
+      if (kmh < 1) return 0;
+      if (kmh < 25) return 1;
+      if (kmh < 45) return 2;
+      if (kmh < 65) return 3;
+      if (kmh < 90) return 4;
+      if (kmh < 115) return 5;
+      return 6;
     },
-    teleport(x, z, heading = 0) {
-      P.x = x; P.z = z; P.heading = heading;
-      if (P.car) { P.car.x = x; P.car.z = z; P.car.heading = heading; }
-      figure.position.set(x, 0, z);
-      figure.rotation.y = heading;
+    setCar(key) {
+      if (carMesh) { scene.remove(carMesh.group); carMesh = null; }
+      carDef = typeof key === 'string' ? (CAR_DEFS[key] || CAR_DEFS.azul) : key;
+      this.carKey = typeof key === 'string' ? key : 'stolen';
+      carMesh = makeCarMesh(carDef, false);
+      carMesh.group.position.set(this.x, 0, this.z);
+      carMesh.group.rotation.y = this.heading;
+      scene.add(carMesh.group);
+      return carMesh;
     },
-    addCash(n) { P.cash += n; },
-    addRespect(n) { P.respect += n; },
-    takeDamage(n) {
-      if (P.dead) return;
-      const absorbed = Math.min(P.armour, n * 0.6);
-      P.armour -= absorbed;
-      P.health -= (n - absorbed);
-      P.lastDamage = W.S.time;
-      if (P.health <= 0) { P.health = 0; P.dead = true; W.S.over = 'wasted'; audio.busted(); }
+    clearCar() {
+      if (carMesh) { scene.remove(carMesh.group); carMesh = null; }
     },
-    reload() {
-      if (P.mag >= 30 || P.reserve <= 0) return;
-      const need = 30 - P.mag;
-      const take = Math.min(need, P.reserve);
-      P.mag += take; P.reserve -= take;
-      audio.reload();
-    },
-    punch(targets) {
-      audio.punch();
-      for (const t of targets) {
-        if (t.dead) continue;
-        if (Math.hypot(t.x - P.x, t.z - P.z) < 2.6) {
-          t.hp -= 20;
-          if (t.hp <= 0) { t.dead = true; if (t.mesh) t.mesh.visible = false; }
-          return true;
-        }
-      }
-      return false;
-    },
-    shoot(targets) { return shootAt(targets); },
-    tryEnterCar() {
-      if (P.inCar) return false;
-      const car = W.vehicles.nearestParked(P.x, P.z, 4.5);
-      if (!car) return false;
-      W.vehicles.enterCar(car);
-      P.car = car;
-      P.inCar = true;
-      P.x = car.x; P.z = car.z; P.heading = car.heading;
-      figure.visible = false;
-      W.police?.addHeat(15);
-      audio.horn();
-      return true;
-    },
-    exitCar() {
-      if (!P.inCar) return false;
-      const car = W.vehicles.exitCar();
-      P.car = null;
-      P.inCar = false;
-      P.x = car.x + Math.sin(car.heading + Math.PI / 2) * 3;
-      P.z = car.z + Math.cos(car.heading + Math.PI / 2) * 3;
-      figure.visible = true;
-      figure.position.set(P.x, 0, P.z);
-      return true;
-    },
-    update(dt, input) {
-      if (P.dead || W.S.over) return;
-      if (W.S.time - P.lastDamage > 6 && P.health > 0 && P.health < 100) {
-        P.health = Math.min(100, P.health + 4 * dt);
-      }
-      if (tracer) {
-        tracerT -= dt;
-        tracer.material.opacity = Math.max(0, tracerT / 0.09) * 0.95;
-        if (tracerT <= 0) { tracer.visible = false; }
-        else tracer.visible = true;
-      }
-      if (P.inCar && P.car) {
-        // In a staged shot the car holds its speed: the screenshot must
-        // show the staged 137/144 km/j, not a coasting car.
-        if (!W.S.shot) W.vehicles.drivePlayer(input, dt, W.S.engine);
-        P.x = P.car.x; P.z = P.car.z; P.heading = P.car.heading;
-        P.speed = Math.abs(P.car.speed);
-        audio.engineStart(clamp(P.speed / 34, 0, 1));
-        return;
-      }
-      audio.engineStop();
-      const fwd = { x: Math.sin(W.camYaw), z: Math.cos(W.camYaw) };
-      const right = { x: Math.cos(W.camYaw), z: -Math.sin(W.camYaw) };
-      let mx = 0, mz = 0;
-      if (input.up) { mx += fwd.x; mz += fwd.z; }
-      if (input.down) { mx -= fwd.x; mz -= fwd.z; }
-      if (input.left) { mx -= right.x; mz -= right.z; }
-      if (input.right) { mx += right.x; mz += right.z; }
-      const len = Math.hypot(mx, mz);
-      const sprint = input.sprint ? 1.5 : 1;
-      if (len > 0) {
-        const sp = 6 * sprint;
-        mx = (mx / len) * sp; mz = (mz / len) * sp;
-        P.speed = sp;
-        P.heading = Math.atan2(mx, mz);
-        P.walkPhase += dt * sp * 1.6;
+    get carGroup() { return carMesh ? carMesh.group : null; },
+    update(dt, input, frozen, upgrades) {
+      if (frozen) return;
+      const top = (carDef.topSpeed / 3.6) * (1 + 0.12 * (upgrades.engine || 0));
+      if (this.onFoot) {
+        const walk = 4.2 * (input.boost ? 1.8 : 1);
+        let mx = 0, mz = 0;
+        if (input.forward) { mx += Math.sin(this.heading); mz += Math.cos(this.heading); }
+        if (input.back) { mx -= Math.sin(this.heading); mz -= Math.cos(this.heading); }
+        if (input.left) this.heading += 2.6 * dt;
+        if (input.right) this.heading -= 2.6 * dt;
+        const len = Math.hypot(mx, mz) || 1;
+        this.x += (mx / len) * walk * dt * (input.forward || input.back ? 1 : 0);
+        this.z += (mz / len) * walk * dt * (input.forward || input.back ? 1 : 0);
+        this.speed = (input.forward || input.back) ? walk : 0;
+        this.walkPhase += dt * 9 * (this.speed > 0 ? 1 : 0);
+        const swing = Math.sin(this.walkPhase) * 0.5;
+        this.legL.rotation.x = swing;
+        this.legR.rotation.x = -swing;
+        this.group.position.set(this.x, 0, this.z);
+        this.group.rotation.y = this.heading;
+        this.group.visible = true;
+        if (carMesh) carMesh.group.visible = false;
       } else {
-        P.speed = 0;
+        const accel = carDef.accel * (1 + 0.15 * (upgrades.engine || 0));
+        if (input.forward) this.speed += accel * dt;
+        if (input.back) this.speed -= accel * 0.8 * dt;
+        if (!input.forward && !input.back) this.speed *= Math.max(0, 1 - 1.4 * dt);
+        if (input.handbrake) this.speed *= Math.max(0, 1 - 4 * dt);
+        const boost = input.boost ? 1.18 : 1;
+        this.speed = clamp(this.speed, -12, top * boost);
+        const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
+        const grip = carDef.grip * (1 + 0.1 * (upgrades.tyres || 0));
+        this.heading += steer * 1.9 * grip * dt * clamp(Math.abs(this.speed) / 8, 0, 1) * (this.speed >= 0 ? 1 : -1);
+        this.x += Math.sin(this.heading) * this.speed * dt;
+        this.z += Math.cos(this.heading) * this.speed * dt;
+        if (carMesh) {
+          carMesh.group.position.set(this.x, 0, this.z);
+          carMesh.group.rotation.y = this.heading;
+          carMesh.group.visible = true;
+        }
+        this.group.visible = false;
       }
-      const nx = P.x + mx * dt, nz = P.z + mz * dt;
-      if (!city.collides(nx, P.z, 0.7)) P.x = nx;
-      if (!city.collides(P.x, nz, 0.7)) P.z = nz;
-      const c = city.clampToCity(P.x, P.z, 4);
-      P.x = c.x; P.z = c.z;
-      figure.position.set(P.x, 0, P.z);
-      figure.rotation.y = P.heading;
-      const sw = Math.sin(P.walkPhase) * (P.speed > 0 ? 0.5 : 0);
-      figure.userData.legL.rotation.x = sw;
-      figure.userData.legR.rotation.x = -sw;
-      figure.userData.armL.rotation.x = -sw * 0.7;
-      figure.userData.armR.rotation.x = sw * 0.7;
     },
-  });
-  return P;
+  };
 }

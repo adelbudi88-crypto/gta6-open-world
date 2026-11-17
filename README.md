@@ -1,21 +1,43 @@
-# gta6-open-world
+# PORTO AZUL II — open-world crime in a dusk-lit neon city
 
-[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![rank](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![reward](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+An original open-world crime game (three.js, vendored under `game/vendor/`):
+explore the city of Porto Azul on foot and by car, steal and drive cars, run
+from the police, and play through a 5-chapter story with Benny, Tono and Mara.
 
-**PORTO AZUL II** — a sun-soaked open-world crime game in the browser: 5 story missions with Benny, Tono and Mara, police chases with a helicopter, heists, a four-station radio, Benny's Garage upgrades and saves. Built with three.js, no build step, no network requests — every asset is generated in code.
+## What is in the game
 
-Play as Daz in the dusk-lit city of Porto Azul. Steal cars, outrun the law, pull the Casino Vault Job and escape with the cash. The HUD shows the district, mission and timer, wanted stars, health and armour, weapon and ammo, respect level, a minimap with a route, a speedometer and the radio station.
+- **A living city at dusk** — Torre Plaza, The Mirage Strip, Palmline Beach,
+  Old Town and Harbor East; traffic, pedestrians, lit windows, neon signs,
+  palms, a sunset sky and wet-looking roads.
+- **5 story missions** — delivery, debt collection, a heat-wave escape, a
+  vault job and the Casino Vault Run, each with a chapter banner, a timer
+  and a cash payout.
+- **Wanted system** — 0–5 stars, police cars, foot cops and a helicopter
+  with a searchlight; reach MOST WANTED at 5 stars.
+- **Economy and progression** — cash, mission payouts, Benny's Garage
+  upgrades (engine, armour, tyres), respect levels, health and armour,
+  a HORNET SMG with ammo.
+- **Full HUD** — minimap with route, mission + timer, cash, wanted stars,
+  health/armour, weapon, radio station, day + clock, district + flavour
+  line, speedometer + gear + car name.
+- **Radio** — 4 procedural WebAudio stations (C to change), engine hum
+  and police sirens.
+- **Save** — progress autosaves to localStorage; continue from the title
+  screen.
 
-## Run it
+## Controls
 
-```sh
-node serve.ts
-```
+WASD drive / walk · Shift boost · Space handbrake · E enter / exit car ·
+F shoot · R reload · C radio · B garage (near Benny's Garage) · P pause ·
+mouse drag orbits the camera · Enter start.
 
-Then open http://localhost:8080 — WASD to move, mouse to look, E to enter a car, click to shoot, R to reload, G at the garage to upgrade, C for radio, M to mute, P to pause.
+## Play it
 
----
+`node serve.ts` then open http://localhost:8080. No build step, no
+network requests — everything loads from `game/`.
 
-<sub>Entered on [make.fun](https://make.fun/?ref=hynfsjfx&utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
+## Screenshots
+
+The 4 dossier screenshots are staged mid-action by `tools/shots.mjs`
+(`node tools/shots.mjs`): a high-speed chase, a foot firefight on the
+Strip, a MOST WANTED chase and the final vault run.

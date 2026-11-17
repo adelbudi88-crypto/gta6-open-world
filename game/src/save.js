@@ -1,27 +1,34 @@
-// Tiny versioned save in localStorage. Only the numbers that define a
-// campaign live here; the world itself is rebuilt deterministically.
-const KEY = 'portoazul-save-v1';
+// Save / load for Porto Azul II. Progress autosaves to localStorage after
+// every mission; a failed parse or a disabled store just starts a new game.
+const KEY = 'porto-azul-ii-save-v1';
 
 export function loadSave() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
-    const d = JSON.parse(raw);
-    if (!d || typeof d !== 'object' || d.v !== 1) return null;
-    return d;
+    const data = JSON.parse(raw);
+    if (!data || typeof data.cash !== 'number') return null;
+    return data;
   } catch {
     return null;
   }
 }
 
-export function storeSave(data) {
+export function writeSave(state) {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ v: 1, savedAt: Date.now(), ...data }));
+    window.localStorage.setItem(KEY, JSON.stringify({
+      cash: Math.floor(state.cash),
+      missionIndex: state.missionIndex,
+      respect: state.respect,
+      upgrades: state.upgrades,
+      day: state.day,
+      bestCash: Math.floor(state.bestCash),
+    }));
   } catch {
-    // Storage full or blocked: the game keeps running without a save.
+    // Storage off (private window): the session just does not persist.
   }
 }
 
 export function clearSave() {
-  try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+  try { window.localStorage.removeItem(KEY); } catch { /* ignore */ }
 }
