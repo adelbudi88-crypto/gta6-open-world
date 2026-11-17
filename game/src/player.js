@@ -1,0 +1,144 @@
+// The player on foot: third-person block character, WASD + mouse look,
+// punch (F), hitscan shooting (click) with a tracer line, car entry (E).
+import * as THREE from 'three';
+import { clamp, collideCircle, dist2 } from './rng.js';
+
+const PLAYER_COLOR = 0x2e6ac2;
+
+export function makePlayer(scene) {
+  const g = new THREE.Group();
+  const shirt = new THREE.MeshLambertMaterial({ color: PLAYER_COLOR });
+  const skin = new THREE.MeshLambertMaterial({ color: 0xe8b88a });
+  const pants = new THREE.MeshLambertMaterial({ color: 0x222831 });
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.75, 0.36), shirt);
+  torso.position.y = 1.1;
+  torso.castShadow = true;
+  g.add(torso);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skin);
+  head.position.y = 1.68;
+  head.castShadow = true;
+  g.add(head);
+  // cap
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.44), new THREE.MeshLambertMaterial({ color: 0xc23a2e }));
+  cap.position.y = 1.92;
+  g.add(cap);
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.75, 0.24), pants);
+  legL.position.set(-0.16, 0.38, 0);
+  g.add(legL);
+  const legR = legL.clone();
+  legR.position.x = 0.16;
+  g.add(legR);
+  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.65, 0.2), shirt);
+  armL.position.set(-0.42, 1.1, 0);
+  g.add(armL);
+  const armR = armL.clone();
+  armR.position.x = 0.42;
+  g.add(armR);
+  // pistol in right hand
+  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.42), new THREE.MeshLambertMaterial({ color: 0x181818 }));
+  gun.position.set(0.42, 0.85, 0.18);
+  g.add(gun);
+  g.userData = { legL, legR, armL, armR };
+  scene.add(g);
+
+  const p = {
+    mesh: g,
+    x: 0, z: 30, heading: 0, camYaw: 0,
+    health: 100, ammo: 24, cash: 0,
+    inCar: false, car: null,
+    walkPhase: 0, punchTimer: 0, punchCooldown: 0,
+    shootCooldown: 0, sprint: false,
+    alive: true,
+  };
+  return p;
+}
+
+// Move on foot. input: {f, s, l, r, sprint, yaw}. Returns nothing.
+export function stepPlayerOnFoot(p, dt, input, colliders) {
+  const speed = input.sprint ? 8.5 : 4.6;
+  const sin = Math.sin(input.yaw), cos = Math.cos(input.yaw);
+  // camera-relative movement: forward = -Z of camera yaw
+  let mx = 0, mz = 0;
+  if (input.f) { mx += -sin; mz += -cos; }
+  if (input.s) { mx += sin; mz += cos; }
+  if (input.l) { mx += -cos; mz += sin; }
+  if (input.r) { mx += cos; mz += -sin; }
+  const len = Math.hypot(mx, mz);
+  if (len > 0) {
+    mx /= len; mz /= len;
+    const nx = p.x + mx * speed * dt;
+    const nz = p.z + mz * speed * dt;
+    const res = collideCircle(nx, nz, 0.5, colliders);
+    p.x = res.x; p.z = res.z;
+    p.heading = Math.atan2(mx, mz);
+    p.walkPhase += dt * speed * 2.4;
+  }
+  const swing = len > 0 ? Math.sin(p.walkPhase) * 0.55 : 0;
+  const u = p.mesh.userData;
+  u.legL.rotation.x = swing;
+  u.legR.rotation.x = -swing;
+  u.armL.rotation.x = -swing * 0.6;
+  u.armR.rotation.x = swing * 0.6;
+  if (p.punchTimer > 0) {
+    p.punchTimer -= dt;
+    u.armR.rotation.x = -1.6 * Math.sin((p.punchTimer / 0.25) * Math.PI);
+  }
+  p.mesh.position.set(p.x, 0, p.z);
+  p.mesh.rotation.y = p.heading;
+  p.punchCooldown = Math.max(0, p.punchCooldown - dt);
+  p.shootCooldown = Math.max(0, p.shootCooldown - dt);
+}
+
+// Find the nearest stealable car within reach.
+export function nearestCar(p, cars, maxD = 6) {
+  let best = null, bestD = maxD * maxD;
+  for (const c of cars) {
+    if (c.dead) continue;
+    const d = dist2(p.x, p.z, c.x, c.z);
+    if (d < bestD) { bestD = d; best = c; }
+  }
+  return best;
+}
+
+// Hitscan shot from the player toward a world point. Returns hit info.
+// targets: array of {x, z, radius, hp, onHit} — enemies / props.
+export function shootFrom(scene, origin, dir, range, targets) {
+  const end = {
+    x: origin.x + dir.x * range,
+    y: origin.y + dir.y * range,
+    z: origin.z + dir.z * range,
+  };
+  let bestT = 1, hitTarget = null;
+  for (const t of targets) {
+    if (t.dead || t.hp <= 0) continue;
+    // ray vs vertical cylinder at (t.x, t.z), radius t.radius, height 1.8
+    const ox = origin.x - t.x, oz = origin.z - t.z;
+    const a = dir.x * dir.x + dir.z * dir.z;
+    if (a < 1e-8) continue;
+    const b = 2 * (ox * dir.x + oz * dir.z);
+    const c = ox * ox + oz * oz - t.radius * t.radius;
+    const disc = b * b - 4 * a * c;
+    if (disc < 0) continue;
+    const tHit = (-b - Math.sqrt(disc)) / (2 * a);
+    if (tHit > 0 && tHit < range && tHit / range < bestT) {
+      bestT = tHit / range;
+      hitTarget = t;
+    }
+  }
+  if (hitTarget) {
+    end.x = origin.x + dir.x * bestT * range;
+    end.y = 1.2;
+    end.z = origin.z + dir.z * bestT * range;
+  }
+  // tracer line, fades out
+  const geo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(origin.x, origin.y, origin.z),
+    new THREE.Vector3(end.x, end.y, end.z),
+  ]);
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.95 }));
+  scene.add(line);
+  setTimeout(() => { scene.remove(line); geo.dispose(); }, 70);
+  return { hit: hitTarget, end };
+}
+
+export function clampHealth(p) { p.health = clamp(p.health, 0, 100); }

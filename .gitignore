@@ -1,0 +1,5 @@
+node_modules/
+tools/node_modules/
+out/
+*.log
+tools/node_modules

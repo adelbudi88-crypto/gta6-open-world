@@ -1,19 +1,103 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
+<title>Porto Azul — Open World Crime</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0e14; font-family: "Segoe UI", system-ui, sans-serif; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .panel { position: fixed; z-index: 5; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8); pointer-events: none; }
+  #hud-tl { top: 14px; left: 16px; }
+  #stars { font-size: 26px; letter-spacing: 2px; }
+  #health-wrap { margin-top: 6px; width: 210px; height: 14px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.5); border-radius: 3px; overflow: hidden; }
+  #health-fill { height: 100%; width: 100%; background: #3aa85a; transition: width .2s; }
+  #health-text { font-size: 13px; margin-top: 2px; }
+  #cash { margin-top: 6px; font-size: 22px; font-weight: 700; color: #7dd87d; }
+  #ammo { font-size: 14px; color: #ffd23a; }
+  #objective { top: 14px; left: 50%; transform: translateX(-50%); text-align: center; display: none; max-width: 560px; }
+  #objective.show { display: block; }
+  #mission-title { font-size: 15px; font-weight: 700; color: #ffd23a; letter-spacing: 1px; }
+  #objective-text { font-size: 17px; font-weight: 600; background: rgba(0,0,0,.55); padding: 6px 14px; border-radius: 4px; margin-top: 4px; }
+  #hud-tr { top: 14px; right: 16px; text-align: right; }
+  #clock { font-size: 24px; font-weight: 700; }
+  #city-name { font-size: 13px; color: #cfe8ff; }
+  #minimap { bottom: 16px; left: 16px; width: 190px; height: 190px; border-radius: 4px; }
+  #speed { bottom: 18px; right: 20px; font-size: 30px; font-weight: 800; text-align: right; }
+  #message { bottom: 220px; left: 50%; transform: translateX(-50%); max-width: 640px; text-align: center; font-size: 17px; font-weight: 600; background: rgba(0,0,0,.65); padding: 10px 18px; border-radius: 6px; opacity: 0; transition: opacity .3s; }
+  #message.show { opacity: 1; }
+  #help { bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 12px; color: rgba(255,255,255,.85); background: rgba(0,0,0,.45); padding: 5px 12px; border-radius: 4px; display: none; white-space: nowrap; }
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; z-index: 6; display: none; pointer-events: none; }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 3px #000; }
+  #crosshair::before { left: 4px; top: 0; width: 2px; height: 10px; }
+  #crosshair::after { left: 0; top: 4px; width: 10px; height: 2px; }
+  .screen { position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; flex-direction: column; text-align: center; color: #fff; background: linear-gradient(160deg, rgba(8,20,40,.92), rgba(20,60,90,.88)); }
+  .screen.show { display: flex; }
+  .screen h1 { font-size: 64px; margin: 0; letter-spacing: 4px; color: #ffd23a; text-shadow: 0 4px 24px rgba(0,0,0,.6); }
+  .screen h2 { font-size: 20px; font-weight: 400; color: #cfe8ff; margin: 8px 0 20px; max-width: 620px; line-height: 1.5; }
+  .screen .controls { font-size: 14px; line-height: 1.9; background: rgba(0,0,0,.4); padding: 14px 28px; border-radius: 8px; margin-bottom: 24px; text-align: left; }
+  .screen button { pointer-events: auto; cursor: pointer; font-size: 20px; font-weight: 700; padding: 12px 42px; border: none; border-radius: 6px; background: #ffd23a; color: #1a1a1a; margin: 4px; }
+  .screen button.secondary { background: #2e6ac2; color: #fff; }
+  .screen button:hover { filter: brightness(1.1); }
+  #end-title { color: #ff5040; }
 </style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
 </head>
 <body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
+<canvas id="game" aria-label="Porto Azul: open-world crime game — explore the city on foot and by car"></canvas>
 <p id="status" role="status" aria-live="polite"></p>
+
+<div class="panel" id="hud-tl">
+  <div id="stars">☆☆☆☆☆</div>
+  <div id="health-wrap"><div id="health-fill"></div></div>
+  <div id="health-text">100</div>
+  <div id="cash">$0</div>
+  <div id="ammo"></div>
+</div>
+<div class="panel" id="objective">
+  <div id="mission-title"></div>
+  <div id="objective-text"></div>
+</div>
+<div class="panel" id="hud-tr">
+  <div id="clock">10:00</div>
+  <div id="city-name">Porto Azul</div>
+</div>
+<canvas id="minimap" class="panel" width="190" height="190"></canvas>
+<div class="panel" id="speed"></div>
+<div class="panel" id="message"></div>
+<div class="panel" id="help">WASD jalan/nyetir · Mouse kamera · E masuk/keluar mobil · F pukul · Klik tembak · Spasi rem · H klakson · P jeda · R restart · M suara</div>
+<div id="crosshair"></div>
+
+<div class="screen show" id="screen-start">
+  <h1>PORTO AZUL</h1>
+  <h2>Daz, sopir bayaran di kota pesisir Porto Azul. Antar paket, kejar pengkhianat, kabur dari razia polisi, dan bereskan dermaga — semua demi Mara dan kebebasan kalian.</h2>
+  <div class="controls">
+    <b>Kontrol:</b> WASD jalan / nyetir &nbsp;·&nbsp; Mouse kamera &nbsp;·&nbsp; E masuk / keluar mobil<br>
+    F pukul &nbsp;·&nbsp; Klik kiri tembak &nbsp;·&nbsp; Spasi rem tangan &nbsp;·&nbsp; H klakson<br>
+    P jeda &nbsp;·&nbsp; R restart &nbsp;·&nbsp; M bisu &nbsp;·&nbsp; Bajak mobil parkir atau mobil lalu lintas (E)
+  </div>
+  <div>
+    <button id="btn-start">MULAI</button>
+    <button id="btn-continue" class="secondary">LANJUTKAN</button>
+  </div>
+  <p style="font-size:13px;color:#9fb8cc;margin-top:18px">Game orisinal — kota, karakter, dan cerita buatan sendiri. Main offline di browser desktop.</p>
+</div>
+
+<div class="screen" id="screen-pause">
+  <h1 style="font-size:44px">JEDA</h1>
+  <h2>Tekan P untuk lanjut. Progres tersimpan otomatis tiap 30 detik.</h2>
+  <button id="btn-resume" onclick="document.getElementById('screen-pause').classList.remove('show');window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyP'}))">LANJUT</button>
+</div>
+
+<div class="screen" id="screen-end">
+  <h1 id="end-title">GAME OVER</h1>
+  <h2 id="end-text"></h2>
+  <button id="btn-restart">COBA LAGI (R)</button>
+</div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
