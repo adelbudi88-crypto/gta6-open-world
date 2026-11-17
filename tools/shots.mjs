@@ -5,7 +5,9 @@
 // and writes 4 JPEG screenshots (1280x800, <=256 KiB) to screenshots/.
 // The shot list (name + query) comes from shots.json; the per-shot
 // expectations live here, keyed by file name.
-// v2.1: manifest-driven shot loop, server + expectation helpers split out.
+// v2.3: same checks and playthrough as v2.2, with the server, the shot
+// runner and the playthrough written as separate functions and the
+// expectations grouped per shot in one table.
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { createReadStream, statSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
@@ -93,6 +95,20 @@ const EXPECT = {
   },
 };
 
+async function collectHud(page) {
+  return {
+    cash: await hudText(page, 'cash'),
+    chapter: await hudText(page, 'chapter-title'),
+    chapterVisible: await page.evaluate(() => document.getElementById('chapter')?.classList.contains('show') ?? false),
+    wanted: await hudText(page, 'wanted-label'),
+    weapon: await hudText(page, 'weapon'),
+    district: await hudText(page, 'district-name'),
+    speed: await hudText(page, 'speed-num'),
+    timer: await hudText(page, 'mission-timer'),
+    radio: await hudText(page, 'radio-name'),
+  };
+}
+
 async function testShot(name, query) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const consoleErrors = [];
@@ -110,17 +126,7 @@ async function testShot(name, query) {
     failures.push(`${name}: __shotReady timeout; __game=${await page.evaluate(() => (window.__game ? 'yes' : 'no'))}`);
   }
   const state = await page.evaluate(() => (window.__game ? window.__game.stats() : null));
-  const hud = {
-    cash: await hudText(page, 'cash'),
-    chapter: await hudText(page, 'chapter-title'),
-    chapterVisible: await page.evaluate(() => document.getElementById('chapter')?.classList.contains('show') ?? false),
-    wanted: await hudText(page, 'wanted-label'),
-    weapon: await hudText(page, 'weapon'),
-    district: await hudText(page, 'district-name'),
-    speed: await hudText(page, 'speed-num'),
-    timer: await hudText(page, 'mission-timer'),
-    radio: await hudText(page, 'radio-name'),
-  };
+  const hud = await collectHud(page);
   console.log(`[${name}] stats:`, JSON.stringify(state), 'hud:', JSON.stringify(hud), 'errors:', consoleErrors.length, 'external:', externalReqs.length);
   if (consoleErrors.length) { failures.push(`${name}: console errors: ${consoleErrors.slice(0, 3).join(' | ')}`); }
   if (externalReqs.length) { failures.push(`${name}: external requests: ${externalReqs.slice(0, 3).join(' | ')}`); }

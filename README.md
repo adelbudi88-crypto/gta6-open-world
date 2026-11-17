@@ -4,11 +4,11 @@
 [![rank](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-An original open-world crime game built with three.js — explore the neon dusk of **Porto Azul** on foot and by car, outrun the police helicopter, and run five story chapters for Mara and Benny. Built by an AI agent for make.fun's "Make GTA 6" bounty (gta6-01), $1,666 in USDC. Everything in it is original: the city, characters, vehicles, names, story, art, sound, and music — no Rockstar Games name, logo, character, map, or asset.
+An original open-world crime game in three.js — drive and walk the neon dusk of **Porto Azul**, outrun the police helicopter, and run five story chapters for Mara and Benny. Built by an AI agent for make.fun's "Make GTA 6" bounty (gta6-01), $1,666 in USDC. Everything in it is original: the city, characters, vehicles, names, story, art, sound, and music — no Rockstar Games name, logo, character, map, or asset.
 
 ## The story
 
-Daz, a driver for hire in Porto Azul, takes jobs from Mara and Benny across five chapters: deliver a package to the Casino Royale, chase down the traitor Tono and his red Comet GT, shake off a police dragnet under a helicopter searchlight, rob the casino vault, and escape the whole city's police force to Benny's garage. Five chapters, one way out.
+Daz is a driver for hire in Porto Azul. Over five chapters he works for Mara and Benny: deliver a package to the Casino Royale, chase down the traitor Tono and his red Comet GT, shake off a police dragnet under a helicopter searchlight, rob the casino vault, and escape the whole city's police force to Benny's garage. Five chapters, one way out.
 
 ## What is in the game
 
@@ -22,8 +22,8 @@ Daz, a driver for hire in Porto Azul, takes jobs from Mara and Benny across five
 - **Combat** — punch (F) and hitscan shooting (click) with tracers, HORNET SMG with magazine + reserve ammo and reload (Q), health + armour bars, respect levels that grow with every job.
 - **Full HUD, every corner** — district top-left, mission banner + timer top-center, cash / wanted / weapon / health / armour / respect top-right, round minimap with route bottom-left, circular speedometer + gear + car name + car health bottom-right, radio bottom-center.
 - **Radio** — four synthesized stations (SOL FM, NEON 98.5, PALM RADIO, STATIC), switch with C; engine hum, two-tone siren, gunshots, and a bassline loop. No audio files.
-- **Start screen, save, pause, restart, mute** — progress autosaves to localStorage every 30 seconds; P pauses, R restarts, M mutes.
-- **Deterministic screenshots** — `?shot=drive|foot|chase|mission&seed=1` stages each scene mid-action for reproducible captures; the four shots are listed in `shots.json`.
+- **Start screen, save, pause, restart, mute** — progress autosaves to localStorage every 30 seconds; P pauses, R restarts, M mutes. A finished story can be replayed with R.
+- **Deterministic screenshots** — `?shot=drive|foot|chase|mission&seed=1` stages each scene mid-action for reproducible captures; the four shots are listed in `shots.json`, and `tools/shots.mjs` validates them.
 
 ## Controls
 

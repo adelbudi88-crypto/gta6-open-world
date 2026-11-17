@@ -2,9 +2,9 @@
 // Grid of roads, instanced buildings with lit windows, park, plaza tower,
 // marina strip, lamps and palms, plus the neon casino strip, Benny's
 // garage, wet-road puddles and a low orange sun. No external assets.
-// v2.2: same landmarks, districts and road grid as v2.1, built by a
-// different generator — blocks come from a shuffled list, buildings use
-// a two-per-block pattern, trees ring the park, lamps follow the roads.
+// v2.3: same landmarks, districts and road grid as v2.2, with the
+// generator split into one build step per feature and the block list
+// walked in grid order instead of shuffled.
 import * as THREE from 'three';
 import { clamp, nearestPlace } from './rng.js';
 
@@ -120,6 +120,12 @@ export function buildCity(scene, rng) {
   const colliders = [];
   const placer = new THREE.Object3D();
   const tint = new THREE.Color();
+  const roadsX = [];
+  const roadsZ = [];
+  for (let i = -GRID_N; i <= GRID_N; i++) {
+    roadsX.push(i * PITCH);
+    roadsZ.push(i * PITCH);
+  }
 
   // --- ground (dusk grass) + sea strip + sand on the north edge ---
   const ground = flatMesh(CITY_R * 2 + 260, CITY_R * 2 + 260, new THREE.MeshLambertMaterial({ color: 0x5a7a4a }), 0, -0.05, 0, true);
@@ -154,12 +160,6 @@ export function buildCity(scene, rng) {
   // --- roads + sidewalks (wet asphalt at dusk, light enough to read) ---
   const roadMat = new THREE.MeshLambertMaterial({ color: 0x2e323c });
   const walkMat = new THREE.MeshLambertMaterial({ color: 0x9a9088 });
-  const roadsX = [];
-  const roadsZ = [];
-  for (let i = -GRID_N; i <= GRID_N; i++) {
-    roadsX.push(i * PITCH);
-    roadsZ.push(i * PITCH);
-  }
   for (const x of roadsX) {
     scene.add(flatMesh(ROAD_W, CITY_R * 2 + 8, roadMat, x, 0.05, 0, true));
     scene.add(flatMesh(ROAD_W + 8, CITY_R * 2 + 8, walkMat, x, 0.0, 0));
@@ -206,33 +206,25 @@ export function buildCity(scene, rng) {
   dashes.count = di;
   scene.add(dashes);
 
-  // --- buildings: two per ordinary block, from a shuffled block list ---
+  // --- buildings: two per ordinary block, walked in grid order ---
   const tex = facadeTexture(rng);
-  const blocks = [];
+  const placements = [];
   for (let bx = -GRID_N; bx < GRID_N; bx++) {
     for (let bz = -GRID_N; bz < GRID_N; bz++) {
-      if (!isSpecialBlock(bx, bz)) blocks.push({ bx, bz });
-    }
-  }
-  const shuffled = rng.shuffle(blocks);
-  const placements = [];
-  for (const block of shuffled) {
-    const cx = block.bx * PITCH + PITCH / 2;
-    const cz = block.bz * PITCH + PITCH / 2;
-    const spots = [
-      { ox: -14, oz: -12 },
-      { ox: 13, oz: 11 },
-    ];
-    for (const spot of spots) {
-      if (!rng.chance(0.85)) continue;
-      const w = 18 + rng.range(0, 8);
-      const d = 18 + rng.range(0, 8);
-      const tall = rng.chance(0.14);
-      const h = (10 + rng.range(0, 28)) * (tall ? 1.8 : 1);
-      const x = clamp(cx + spot.ox + rng.range(-6, 6), cx - 22, cx + 22);
-      const z = clamp(cz + spot.oz + rng.range(-6, 6), cz - 22, cz + 22);
-      placements.push({ x, z, w, d, h, c: rng.pick(FACADES), roof: rng.pick(ROOFS) });
-      colliders.push({ x, z, hx: w / 2, hz: d / 2 });
+      if (isSpecialBlock(bx, bz)) continue;
+      const cx = bx * PITCH + PITCH / 2;
+      const cz = bz * PITCH + PITCH / 2;
+      for (const spot of [{ ox: -14, oz: -12 }, { ox: 13, oz: 11 }]) {
+        if (!rng.chance(0.85)) continue;
+        const w = 18 + rng.range(0, 8);
+        const d = 18 + rng.range(0, 8);
+        const tall = rng.chance(0.14);
+        const h = (10 + rng.range(0, 28)) * (tall ? 1.8 : 1);
+        const x = clamp(cx + spot.ox + rng.range(-6, 6), cx - 22, cx + 22);
+        const z = clamp(cz + spot.oz + rng.range(-6, 6), cz - 22, cz + 22);
+        placements.push({ x, z, w, d, h, c: rng.pick(FACADES), roof: rng.pick(ROOFS) });
+        colliders.push({ x, z, hx: w / 2, hz: d / 2 });
+      }
     }
   }
   const bGeo = new THREE.BoxGeometry(1, 1, 1);

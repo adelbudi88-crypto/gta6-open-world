@@ -3,25 +3,21 @@
 // circles overhead and keeps the heat from cooling off. Lose the heat by
 // distance + time; busted if a cop grabs you on foot, wasted if health
 // hits zero. At 5 stars the HUD calls it MOST WANTED.
-// v2.2: same heat/star thresholds, helicopter orbit and pursuit staging
-// as v2.1, with the code rebuilt — table-driven star lookup, parts-table
-// meshes, tuple staging spots, a shared sweep helper for cleanup — and
-// the on-foot staging keeps every car off the centre line so no light
-// bar can cross the CHAPTER banner.
+// v2.3: same heat/star thresholds, helicopter orbit and pursuit staging
+// as v2.2, with the star lookup as a reducer, the meshes built from spec
+// loops, and the per-frame work split into named phases; the on-foot
+// staging keeps every car off the centre line so no light bar can cross
+// the CHAPTER banner.
 import * as THREE from 'three';
 import { clamp, dist2 } from './rng.js';
 import { createCarMesh, stepCar } from './vehicles.js';
 
-// Star bands: [upper heat bound, stars]. A loop over this table replaces
-// the old if-chain; same thresholds (20/40/60/85).
+// Star bands: [upper heat bound, stars]. Same thresholds (20/40/60/85).
 const STAR_BANDS = [[20, 1], [40, 2], [60, 3], [85, 4], [Infinity, 5]];
 
 function starsFromHeat(heat) {
   if (heat <= 0) return 0;
-  for (const [bound, stars] of STAR_BANDS) {
-    if (heat < bound) return stars;
-  }
-  return 5;
+  return STAR_BANDS.reduce((found, [bound, stars]) => (found === null && heat < bound ? stars : found), null) ?? 5;
 }
 
 function wrapAngle(a) {
@@ -33,17 +29,12 @@ function wrapAngle(a) {
 function makeHeliMesh() {
   const g = new THREE.Group();
   const dark = new THREE.MeshLambertMaterial({ color: 0x1a2a3a });
-  const parts = [
-    // [w, h, d, x, y, z, material]
-    [3.4, 1.4, 6.4, 0, 0, 0, dark],
-    [0.7, 0.7, 4.4, 0, 0.2, -5, dark],
-  ];
-  for (const [w, h, d, x, y, z, mat] of parts) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-    m.position.set(x, y, z);
-    if (y === 0) m.castShadow = true;
-    g.add(m);
-  }
+  const body = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.4, 6.4), dark);
+  body.castShadow = true;
+  g.add(body);
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 4.4), dark);
+  tail.position.set(0, 0.2, -5);
+  g.add(tail);
   const glass = new THREE.Mesh(
     new THREE.BoxGeometry(2.6, 1.0, 1.6),
     new THREE.MeshLambertMaterial({ color: 0x9fd8ff, emissive: 0x223344 }),
@@ -74,21 +65,21 @@ function makeFootCopMesh(scene) {
   const navy = new THREE.MeshLambertMaterial({ color: 0x1a2a4a });
   const skin = new THREE.MeshLambertMaterial({ color: 0xe8b88a });
   const capMat = new THREE.MeshLambertMaterial({ color: 0x101828 });
-  const parts = [
-    // [w, h, d, x, y, z, material, shadow]
-    [0.6, 0.72, 0.34, 0, 1.08, 0, navy, true],
-    [0.38, 0.38, 0.38, 0, 1.64, 0, skin, false],
-    [0.42, 0.12, 0.42, 0, 1.86, 0, capMat, false],
-    [0.2, 0.72, 0.22, -0.15, 0.36, 0, navy, false],
-    [0.2, 0.72, 0.22, 0.15, 0.36, 0, navy, false],
+  // [w, h, d, x, y, z, material, shadow, leg?]
+  const spec = [
+    [0.6, 0.72, 0.34, navy, 0, 1.08, 0, true, false],
+    [0.38, 0.38, 0.38, skin, 0, 1.64, 0, false, false],
+    [0.42, 0.12, 0.42, capMat, 0, 1.86, 0, false, false],
+    [0.2, 0.72, 0.22, navy, -0.15, 0.36, 0, false, true],
+    [0.2, 0.72, 0.22, navy, 0.15, 0.36, 0, false, true],
   ];
   const legs = [];
-  for (const [w, h, d, x, y, z, mat, shadow] of parts) {
+  for (const [w, h, d, mat, x, y, z, shadow, leg] of spec) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
     m.position.set(x, y, z);
     if (shadow) m.castShadow = true;
     g.add(m);
-    if (y === 0.36) legs.push(m);
+    if (leg) legs.push(m);
   }
   g.userData = { legL: legs[0], legR: legs[1] };
   scene.add(g);
@@ -129,9 +120,7 @@ export function makePolice(scene, rng, city) {
       z = pz + Math.cos(back) * along - Math.sin(back) * side;
     }
     const car = {
-      mesh,
-      x,
-      z,
+      mesh, x, z,
       heading: rng.range(0, Math.PI * 2),
       speed: 0, maxSpeed: 33,
       health: 100, maxHealth: 100, name: 'PSPD Interceptor',
@@ -390,9 +379,7 @@ export function makePolice(scene, rng, city) {
   // flanking, when the screenshot lands — never between the camera
   // and the player.
   api.stageFootScene = (px, pz) => {
-    const carSpots = [
-      [-8, -34], [9, -44], [-16, -52], [14, -38],
-    ];
+    const carSpots = [[-8, -34], [9, -44], [-16, -52], [14, -38]];
     copCars.forEach((c, i) => {
       const [dx, dz] = carSpots[i % carSpots.length];
       c.x = px + dx;
@@ -403,9 +390,7 @@ export function makePolice(scene, rng, city) {
       c.mesh.position.set(c.x, 0, c.z);
       c.mesh.rotation.y = c.heading;
     });
-    const footSpots = [
-      [-4, -10], [5, -12], [3, -16],
-    ];
+    const footSpots = [[-4, -10], [5, -12], [3, -16]];
     footCops.forEach((c, i) => {
       const [dx, dz] = footSpots[i % footSpots.length];
       c.x = px + dx;

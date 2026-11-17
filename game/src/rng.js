@@ -1,6 +1,11 @@
-// Seeded RNG (mulberry32) plus the small geometry helpers the whole game
-// shares. One seed renders the same city every run, so the ?shot= staging
-// is deterministic: same seed, same streets, same screenshots.
+// Deterministic randomness for Porto Azul II: a mulberry32 core, a small
+// convenience wrapper around it, and the circle-vs-box collision helpers
+// plus the tiny math the rest of the game leans on. One seed renders the
+// same city every run, so ?shot= staging is reproducible: same seed,
+// same streets, same screenshots.
+// v2.3: same algorithms and draw order as v2.2, organised as one class
+// plus free functions instead of a closure object.
+
 export function mulberry32(seed) {
   let state = seed >>> 0;
   return function nextRandom() {
@@ -12,56 +17,60 @@ export function mulberry32(seed) {
   };
 }
 
-export function makeRng(seed) {
-  const draw = mulberry32(seed);
-  let heldGaussian = null;
-  const api = {
-    next: draw,
-    range(lo, hi) {
-      return lo + draw() * (hi - lo);
-    },
-    int(lo, hi) {
-      return Math.floor(api.range(lo, hi + 1));
-    },
-    pick(list) {
-      return list[Math.floor(draw() * list.length)];
-    },
-    chance(probability) {
-      return draw() < probability;
-    },
-    // Fisher-Yates over a copy, driven by this rng.
-    shuffle(list) {
-      const copy = list.slice();
-      for (let i = copy.length - 1; i > 0; i--) {
-        const j = Math.floor(draw() * (i + 1));
-        const tmp = copy[i];
-        copy[i] = copy[j];
-        copy[j] = tmp;
-      }
-      return copy;
-    },
-    // Box-Muller gaussian, mean 0, stddev 1 (caches the spare value).
-    gauss() {
-      if (heldGaussian !== null) {
-        const value = heldGaussian;
-        heldGaussian = null;
-        return value;
-      }
-      let u = 0;
-      let v = 0;
-      while (u === 0) u = draw();
-      while (v === 0) v = draw();
-      const radius = Math.sqrt(-2 * Math.log(u));
-      const angle = 2 * Math.PI * v;
-      heldGaussian = radius * Math.sin(angle);
-      return radius * Math.cos(angle);
-    },
-  };
-  return api;
+export class Rng {
+  constructor(seed) {
+    this.draw = mulberry32(seed);
+    this.spare = null; // cached second Box-Muller value
+  }
+  next() { return this.draw(); }
+  range(lo, hi) { return lo + this.draw() * (hi - lo); }
+  int(lo, hi) { return Math.floor(this.range(lo, hi + 1)); }
+  pick(list) { return list[Math.floor(this.draw() * list.length)]; }
+  chance(p) { return this.draw() < p; }
+  // Fisher-Yates over a copy, driven by this rng.
+  shuffle(list) {
+    const copy = list.slice();
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(this.draw() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  }
+  // Box-Muller gaussian, mean 0, stddev 1 (caches the spare value).
+  gauss() {
+    if (this.spare !== null) {
+      const value = this.spare;
+      this.spare = null;
+      return value;
+    }
+    let u = 0;
+    let v = 0;
+    while (u === 0) u = this.draw();
+    while (v === 0) v = this.draw();
+    const radius = Math.sqrt(-2 * Math.log(u));
+    const angle = 2 * Math.PI * v;
+    this.spare = radius * Math.sin(angle);
+    return radius * Math.cos(angle);
+  }
 }
 
-// Push a circle out of an axis-aligned box. Returns the corrected spot plus
-// the push-out normal, or null when there is no overlap.
+export function makeRng(seed) {
+  const r = new Rng(seed);
+  // The old shape: a plain object with the same method names, so every
+  // caller keeps working unchanged.
+  return {
+    next: () => r.next(),
+    range: (lo, hi) => r.range(lo, hi),
+    int: (lo, hi) => r.int(lo, hi),
+    pick: (list) => r.pick(list),
+    chance: (p) => r.chance(p),
+    shuffle: (list) => r.shuffle(list),
+    gauss: () => r.gauss(),
+  };
+}
+
+// Push a circle out of an axis-aligned box. Returns the corrected spot
+// plus the push-out normal, or null when there is no overlap.
 export function resolveCircleAABB(px, pz, radius, box) {
   const nearestX = Math.max(box.x - box.hx, Math.min(px, box.x + box.hx));
   const nearestZ = Math.max(box.z - box.hz, Math.min(pz, box.z + box.hz));
@@ -71,12 +80,7 @@ export function resolveCircleAABB(px, pz, radius, box) {
   if (d2 >= radius * radius) return null;
   if (d2 > 1e-8) {
     const d = Math.sqrt(d2);
-    return {
-      x: nearestX + (dx / d) * radius,
-      z: nearestZ + (dz / d) * radius,
-      nx: dx / d,
-      nz: dz / d,
-    };
+    return { x: nearestX + (dx / d) * radius, z: nearestZ + (dz / d) * radius, nx: dx / d, nz: dz / d };
   }
   // The centre is inside the box: escape along the shallowest side.
   const left = px - (box.x - box.hx);

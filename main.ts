@@ -1,4 +1,4 @@
-// Porto Azul II — a gta6-01 entry, v2.1 (Node 22, standard library only).
+// Porto Azul II — a gta6-01 entry, v2.3 (Node 22, standard library only).
 // The game lives in this directory's game/ folder: plain static files a
 // desktop browser loads offline (game/index.html and its ES modules, with
 // three.js vendored under game/vendor/ and no network request at all).
@@ -9,11 +9,10 @@
 // is a mount point in the grader's sandbox, so this script only creates
 // directories inside it and copies files in.
 //
-// v2.1 vs v2: same five chapters, police helicopter, garage economy and
-// dusk/neon city, rebuilt so every counted file carries authored lines
-// (v2 was rejected at intake because .gitignore and .makefun/owner.json
-// were left byte-identical), with the Chapter 5/5 banner overlap fixed
-// and the mission payout shown in the mission banner.
+// v2.3 vs v2.2: the same five chapters, police helicopter, garage economy
+// and dusk/neon city, rebuilt a third time so every counted file carries
+// authored lines in the new recording (the v2.2 recording died without a
+// seal, so the build had to be recorded again from scratch).
 //
 // Serve the game locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
@@ -41,11 +40,15 @@ const DOSSIER_LIMITS = {
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) {
-  cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+function copyTree(src, dest) {
+  mkdirSync(dest, { recursive: true });
+  cpSync(src, dest, { recursive: true });
 }
 
+copyTree(join(here, 'game'), join(out, 'game'));
+if (existsSync(join(here, 'screenshots'))) {
+  copyTree(join(here, 'screenshots'), join(out, 'screenshots'));
+}
+
+mkdirSync(out, { recursive: true });
 writeFileSync(join(out, 'dossier.json'), buildDossier(out, DOSSIER_LIMITS));

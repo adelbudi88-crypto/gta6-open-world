@@ -1,34 +1,39 @@
 // Pedestrians: simple block figures walking the sidewalks; they flee from
 // gunfire, speeding cars and high wanted levels, and get knocked down by cars.
-// v2.1: same crowd (40, a quarter of them lingering around the casino strip
+// v2.3: same crowd (40, a quarter of them lingering around the casino strip
 // neon at dusk, scattering wider when a police chase rolls through), with
-// the per-pedestrian step split into flee / stroll / knocked-down helpers.
+// the spawn table and the per-ped step written as one movement function
+// driven by a mode switch.
 import * as THREE from 'three';
 import { collideCircle, dist2 } from './rng.js';
 
 const SKIN = [0xe8b88a, 0xc98a5a, 0x8a5a3a, 0xf0c8a0];
 const SHIRT = [0xc23a2e, 0x2e6ac2, 0x3aa85a, 0xe8c832, 0x8a5ac2, 0xd8d8d8, 0x3ab8a8, 0xe87a2a, 0xff5aa8, 0x2ad8c8];
 
+// [w, h, d, material, x, y, z, shadow?, named?]
+const PED_PARTS = [
+  [0.55, 0.7, 0.32, 'shirt', 0, 1.05, 0, true, null],
+  [0.36, 0.36, 0.36, 'skin', 0, 1.6, 0, true, null],
+  [0.2, 0.7, 0.22, 'pants', -0.14, 0.35, 0, false, 'legL'],
+  [0.2, 0.7, 0.22, 'pants', 0.14, 0.35, 0, false, 'legR'],
+  [0.16, 0.6, 0.18, 'shirt', -0.36, 1.05, 0, false, 'armL'],
+  [0.16, 0.6, 0.18, 'shirt', 0.36, 1.05, 0, false, 'armR'],
+];
+
 function makePedMesh(colorHex, skinHex) {
+  const mats = {
+    shirt: new THREE.MeshLambertMaterial({ color: colorHex }),
+    skin: new THREE.MeshLambertMaterial({ color: skinHex }),
+    pants: new THREE.MeshLambertMaterial({ color: 0x2a3242 }),
+  };
   const g = new THREE.Group();
-  const shirt = new THREE.MeshLambertMaterial({ color: colorHex });
-  const skin = new THREE.MeshLambertMaterial({ color: skinHex });
-  const pants = new THREE.MeshLambertMaterial({ color: 0x2a3242 });
-  const parts = [
-    { geo: new THREE.BoxGeometry(0.55, 0.7, 0.32), mat: shirt, at: [0, 1.05, 0], shadow: true },
-    { geo: new THREE.BoxGeometry(0.36, 0.36, 0.36), mat: skin, at: [0, 1.6, 0], shadow: true },
-    { geo: new THREE.BoxGeometry(0.2, 0.7, 0.22), mat: pants, at: [-0.14, 0.35, 0], name: 'legL' },
-    { geo: new THREE.BoxGeometry(0.2, 0.7, 0.22), mat: pants, at: [0.14, 0.35, 0], name: 'legR' },
-    { geo: new THREE.BoxGeometry(0.16, 0.6, 0.18), mat: shirt, at: [-0.36, 1.05, 0], name: 'armL' },
-    { geo: new THREE.BoxGeometry(0.16, 0.6, 0.18), mat: shirt, at: [0.36, 1.05, 0], name: 'armR' },
-  ];
   const named = {};
-  for (const part of parts) {
-    const mesh = new THREE.Mesh(part.geo, part.mat);
-    mesh.position.set(part.at[0], part.at[1], part.at[2]);
-    if (part.shadow) mesh.castShadow = true;
+  for (const [w, h, d, mat, x, y, z, shadow, name] of PED_PARTS) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats[mat]);
+    mesh.position.set(x, y, z);
+    if (shadow) mesh.castShadow = true;
     g.add(mesh);
-    if (part.name) named[part.name] = mesh;
+    if (name) named[name] = mesh;
   }
   g.userData = named;
   return g;
@@ -85,26 +90,24 @@ export function makePeds(scene, rng, city, count = 40) {
     peds.push(p);
   }
 
-  function stepDown(p, dt) {
-    p.downTimer -= dt;
-    if (p.downTimer > 0) return true;
-    p.down = false;
-    p.mesh.rotation.x = 0;
-    p.mesh.position.y = 0;
-    p.fleeing = true;
-    return false;
-  }
-
-  function stepFlee(p, dt) {
-    p.fleeTimer += dt;
-    if (p.fleeTimer > 4) {
-      p.fleeing = false;
-      p.fleeTimer = 0;
+  // One step of one pedestrian: returns the velocity to apply this frame.
+  function stepPed(p, dt) {
+    if (p.down) {
+      p.downTimer -= dt;
+      if (p.downTimer > 0) return null;
+      p.down = false;
+      p.mesh.rotation.x = 0;
+      p.mesh.position.y = 0;
+      p.fleeing = true;
     }
-    return { vx: p.fleeX, vz: p.fleeZ, sp: 4.2 };
-  }
-
-  function stepStroll(p, dt) {
+    if (p.fleeing) {
+      p.fleeTimer += dt;
+      if (p.fleeTimer > 4) {
+        p.fleeing = false;
+        p.fleeTimer = 0;
+      }
+      return { vx: p.fleeX, vz: p.fleeZ, sp: 4.2 };
+    }
     // stroll along the sidewalk, turn at intersections sometimes
     const alongAxis = p.axis === 'x' ? p.x : p.z;
     const lines = p.axis === 'x' ? city.roadsX : city.roadsZ;
@@ -129,16 +132,12 @@ export function makePeds(scene, rng, city, count = 40) {
     list: peds,
     update(dt, colliders, playerPos, danger) {
       for (const p of peds) {
-        if (p.down) {
-          if (stepDown(p, dt)) continue;
-        }
         if (danger && dist2(p.x, p.z, playerPos.x, playerPos.z) < 1600) {
           p.scare(playerPos.x, playerPos.z);
         }
-        const move = p.fleeing ? stepFlee(p, dt) : stepStroll(p, dt);
-        const nx = p.x + move.vx * move.sp * dt;
-        const nz = p.z + move.vz * move.sp * dt;
-        const res = collideCircle(nx, nz, 0.45, colliders);
+        const move = stepPed(p, dt);
+        if (!move) continue;
+        const res = collideCircle(p.x + move.vx * move.sp * dt, p.z + move.vz * move.sp * dt, 0.45, colliders);
         p.x = res.x;
         p.z = res.z;
         if (res.hit && !p.fleeing) p.heading += Math.PI / 2;

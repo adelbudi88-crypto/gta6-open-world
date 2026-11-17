@@ -6,28 +6,14 @@
 // game/, and otherwise does nothing clever: a development convenience,
 // not a web server for the internet. Porto Azul II serves the same way
 // as v1 — the game itself is all in game/.
+// v2.3: same behaviour as v2.2, with the flag parsing and the file
+// serving rewritten as small named functions.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
-
-function flagValue(argv, flag, fallback) {
-  const at = argv.indexOf(flag);
-  if (at === -1 || at + 1 >= argv.length) return fallback;
-  return argv[at + 1] || fallback;
-}
-
-function pickPort(argv) {
-  const wanted = Number(flagValue(argv, '--port', '8080'));
-  const ok = Number.isInteger(wanted) && wanted > 0 && wanted < 65536;
-  return ok ? wanted : 8080;
-}
-
-const argv = process.argv.slice(2);
-const port = pickPort(argv);
-const host = flagValue(argv, '--host', '127.0.0.1');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -53,6 +39,25 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
+function flagValue(argv, flag, fallback) {
+  const at = argv.indexOf(flag);
+  if (at === -1 || at + 1 >= argv.length) return fallback;
+  return argv[at + 1] || fallback;
+}
+
+function pickPort(argv) {
+  const wanted = Number(flagValue(argv, '--port', '8080'));
+  const ok = Number.isInteger(wanted) && wanted > 0 && wanted < 65536;
+  return ok ? wanted : 8080;
+}
+
+function resolveInside(pathname) {
+  const cleaned = pathname.endsWith('/') ? pathname + 'index.html' : pathname;
+  const file = resolve(join(root, normalize(cleaned)));
+  if (file !== root && !file.startsWith(root + sep)) return null;
+  return file;
+}
+
 function serveFile(request, response) {
   const url = new URL(request.url ?? '/', 'http://localhost');
   let pathname;
@@ -62,9 +67,8 @@ function serveFile(request, response) {
     response.writeHead(400).end('bad request');
     return;
   }
-  if (pathname.endsWith('/')) pathname += 'index.html';
-  const file = resolve(join(root, normalize(pathname)));
-  if (file !== root && !file.startsWith(root + sep)) {
+  const file = resolveInside(pathname);
+  if (!file) {
     response.writeHead(403).end('forbidden');
     return;
   }
@@ -84,6 +88,10 @@ function serveFile(request, response) {
   });
   createReadStream(file).pipe(response);
 }
+
+const argv = process.argv.slice(2);
+const port = pickPort(argv);
+const host = flagValue(argv, '--host', '127.0.0.1');
 
 createServer(serveFile).listen(port, host, () => {
   console.log(`game/ is on http://${host}:${port}`);

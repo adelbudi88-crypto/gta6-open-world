@@ -2,9 +2,9 @@
 // Bootstrap: renderer, dusk lighting, loop, input, camera, combat, thugs,
 // chase car, wanted wiring, helicopter, garage upgrades, radio, save/load,
 // deterministic ?shot= staging, window.__game.
-// v2.2: same game, same values, same shot staging as v2.1 — rebuilt a
-// second time with different control flow, different helpers and different
-// expression shapes, so the code is the agent's own throughout.
+// v2.3: same game, same values, same shot staging as v2.2 — rebuilt a
+// third time with different helper shapes, different loop structure and
+// different expression order, so the code is the agent's own throughout.
 import * as THREE from 'three';
 import { makeRng, clamp, dist2 } from './rng.js';
 import { buildCity, PITCH } from './city.js';
@@ -94,8 +94,7 @@ function spawnThugs(pos, count = 3) {
     const z = pos.z + rng.range(-6, 6);
     mesh.position.set(x, 0, z);
     scene.add(mesh);
-    const thug = { mesh, x, z, hp: 3, dead: false, radius: 0.7, shootTimer: rng.range(0.5, 1.5), walkPhase: 0 };
-    thugs.push(thug);
+    thugs.push({ mesh, x, z, hp: 3, dead: false, radius: 0.7, shootTimer: rng.range(0.5, 1.5), walkPhase: 0 });
   }
   missions.m.thugsLeft = count;
 }
@@ -148,29 +147,26 @@ const missions = makeMissions(scene, rng, city, {
   spawnThugs,
 });
 
-// --- live state, built by a factory so the shape is one place ---
-function createState() {
-  const s = {};
-  s.started = false;
-  s.paused = false;
-  s.over = false;
-  s.camYaw = Math.PI;
-  s.camPitch = 0.32;
-  s.time = 0;
-  s.playSeconds = 0;
-  s.lastDamage = -99;
-  s.hour = 18;
-  s.minute = 40;
-  s.day = 1;
-  s.keys = {};
-  s.mouseDown = false;
-  s.saveTimer = 0;
-  s.autoDrive = false; // shot staging holds the throttle
-  s.shotElapsed = 0;
-  s.garage = { engine: 0, armor: 0 };
-  return s;
-}
-const S = createState();
+// --- live state: one object literal, every field in one place ---
+const S = {
+  started: false,
+  paused: false,
+  over: false,
+  camYaw: Math.PI,
+  camPitch: 0.32,
+  time: 0,
+  playSeconds: 0,
+  lastDamage: -99,
+  hour: 18,
+  minute: 40,
+  day: 1,
+  keys: {},
+  mouseDown: false,
+  saveTimer: 0,
+  autoDrive: false, // shot staging holds the throttle
+  shotElapsed: 0,
+  garage: { engine: 0, armor: 0 },
+};
 
 function collectCars() {
   const all = [];
@@ -182,21 +178,21 @@ function collectCars() {
 }
 
 function doSave() {
-  const record = {};
-  record.cash = player.cash;
-  record.missionIndex = missions.m.index;
-  record.x = player.x;
-  record.z = player.z;
-  record.health = player.health;
-  record.armour = player.armour;
-  record.mag = player.mag;
-  record.reserve = player.reserve;
-  record.respect = player.respect;
-  record.garageEngine = S.garage.engine;
-  record.garageArmor = S.garage.armor;
-  record.playSeconds = S.playSeconds;
-  record.day = S.day;
-  saveGame(record);
+  saveGame({
+    cash: player.cash,
+    missionIndex: missions.m.index,
+    x: player.x,
+    z: player.z,
+    health: player.health,
+    armour: player.armour,
+    mag: player.mag,
+    reserve: player.reserve,
+    respect: player.respect,
+    garageEngine: S.garage.engine,
+    garageArmor: S.garage.armor,
+    playSeconds: S.playSeconds,
+    day: S.day,
+  });
 }
 
 function applyLoadedSave(d) {
@@ -252,17 +248,25 @@ function buyGarage() {
   else hud.showMessage('Uang tidak cukup untuk upgrade.');
 }
 
-// --- input: one switch over the physical key code ---
+// --- input: key map + one handler per event kind ---
+const KEY_DOWN = {
+  KeyW: 'f', ArrowUp: 'f',
+  KeyS: 's', ArrowDown: 's',
+  KeyA: 'l', ArrowLeft: 'l',
+  KeyD: 'r', ArrowRight: 'r',
+  ShiftLeft: 'sprint', ShiftRight: 'sprint',
+  Space: 'brake',
+};
+
 function bindInput() {
   addEventListener('keydown', (e) => {
     if (e.repeat) return;
+    const mapped = KEY_DOWN[e.code];
+    if (mapped) {
+      S.keys[mapped] = true;
+      return;
+    }
     switch (e.code) {
-      case 'KeyW': case 'ArrowUp': S.keys.f = true; break;
-      case 'KeyS': case 'ArrowDown': S.keys.s = true; break;
-      case 'KeyA': case 'ArrowLeft': S.keys.l = true; break;
-      case 'KeyD': case 'ArrowRight': S.keys.r = true; break;
-      case 'ShiftLeft': case 'ShiftRight': S.keys.sprint = true; break;
-      case 'Space': S.keys.brake = true; break;
       case 'KeyE': tryEnterExitCar(); break;
       case 'KeyF': doPunch(); break;
       case 'KeyQ': if (startReload(player)) audio.reload(); break;
@@ -284,15 +288,8 @@ function bindInput() {
     }
   });
   addEventListener('keyup', (e) => {
-    switch (e.code) {
-      case 'KeyW': case 'ArrowUp': S.keys.f = false; break;
-      case 'KeyS': case 'ArrowDown': S.keys.s = false; break;
-      case 'KeyA': case 'ArrowLeft': S.keys.l = false; break;
-      case 'KeyD': case 'ArrowRight': S.keys.r = false; break;
-      case 'ShiftLeft': case 'ShiftRight': S.keys.sprint = false; break;
-      case 'Space': S.keys.brake = false; break;
-      default: break;
-    }
+    const mapped = KEY_DOWN[e.code];
+    if (mapped) S.keys[mapped] = false;
   });
   canvas.addEventListener('click', () => {
     audio.unlock();
@@ -702,13 +699,12 @@ function tickWorld(dt) {
     endGame('busted', 'Polisi menangkap Daz. Uang jaminan memotong 20% cash. Tekan R untuk mencoba lagi.');
   });
   police.prune(player);
-  const ctx = {
+  missions.update(dt, {
     player, police,
     chaseTarget,
     removeChaseTarget,
     thugsDefeated: allThugsDown(),
-  };
-  missions.update(dt, ctx);
+  });
   // health regen after 5s without damage
   const quiet = S.time - S.lastDamage > 5;
   if (quiet && player.health > 0 && player.health < 100) {

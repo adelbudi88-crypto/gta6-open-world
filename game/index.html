@@ -70,14 +70,14 @@
   #garage-hint.show { opacity: 1; }
   #help { bottom: 62px; left: 50%; transform: translateX(-50%); font-size: 12px; color: rgba(255,255,255,.85); background: rgba(0,0,0,.45); padding: 5px 12px; border-radius: 4px; display: none; white-space: nowrap; }
 
-  /* --- crosshair --- */
+  /* --- crosshair (on foot only) --- */
   #crosshair { position: fixed; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; z-index: 6; display: none; pointer-events: none; }
   #crosshair::before, #crosshair::after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 3px #000; }
   #crosshair::before { left: 4px; top: 0; width: 2px; height: 10px; }
   #crosshair::after { left: 0; top: 4px; width: 10px; height: 2px; }
 
-  /* --- chapter banner: raised to 30% in v2.1 so a police light bar can
-         never cross the title in the on-foot screenshots --- */
+  /* --- chapter banner: parked at 30% of the viewport since v2.1, so a
+         police light bar can never cross the title in the on-foot shots --- */
   #chapter { position: fixed; left: 50%; top: 30%; transform: translate(-50%, -50%); z-index: 7; text-align: center; color: #fff; pointer-events: none; opacity: 0; transition: opacity .4s; text-shadow: 0 2px 12px rgba(0,0,0,.9); }
   #chapter.show { opacity: 1; }
   #chapter-title { font-size: 30px; font-weight: 800; letter-spacing: 5px; color: #ffd23a; }
@@ -159,7 +159,7 @@
 
 <div class="screen show" id="screen-start">
   <h1>PORTO AZUL II</h1>
-  <h2>Daz kembali. Lima chapter cerita bersama Mara dan Benny: antar paket, kejar pengkhianat, kabur dari razia helikopter, rampok brankas kasino — semua di senja neon Porto Azul.</h2>
+  <h2>Daz is back. Five story chapters with Mara and Benny — a package run, a traitor chase, a helicopter dragnet, a casino vault heist — all in the neon dusk of Porto Azul.</h2>
   <div class="controls">
     <b>Fitur:</b> 5 story mission + timer + payout di banner · wanted 1–5 + helikopter polisi · ekonomi + upgrade garasi Benny ·<br>
     senjata HORNET SMG + armour · respect level · 4 stasiun radio · minimap + rute misi · save otomatis<br><br>

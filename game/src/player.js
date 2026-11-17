@@ -1,7 +1,8 @@
 // The player on foot: third-person block character, WASD + mouse look,
 // punch (F), hitscan shooting (click) with a tracer line, car entry (E).
-// v2.1: same armour / HORNET SMG / reload / respect / garage levels as v2,
-// built from a parts table instead of one long mesh-building block.
+// v2.3: same armour / HORNET SMG / reload / respect / garage levels as
+// v2.2, with the figure built by a loop over a parts spec and the
+// movement, reload and shooting helpers rewritten as plain functions.
 import * as THREE from 'three';
 import { clamp, collideCircle, dist2 } from './rng.js';
 
@@ -25,39 +26,40 @@ export function damageWithArmour(p, n) {
   }
 }
 
-// One box part of a block figure: [w, h, d, material, x, y, z, shadow?].
-function addPart(group, material, spec, named) {
-  const [w, h, d, x, y, z] = spec;
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  if (spec[6]) mesh.castShadow = true;
-  group.add(mesh);
-  if (named) group.userData[named] = mesh;
-  return mesh;
-}
+// [w, h, d, material, x, y, z, shadow?, named?]
+const FIGURE_PARTS = [
+  [0.62, 0.75, 0.36, 'shirt', 0, 1.1, 0, true, null],
+  [0.4, 0.4, 0.4, 'skin', 0, 1.68, 0, true, null],
+  [0.44, 0.14, 0.44, 'cap', 0, 1.92, 0, false, null],
+  [0.22, 0.75, 0.24, 'pants', -0.16, 0.38, 0, false, 'legL'],
+  [0.22, 0.75, 0.24, 'pants', 0.16, 0.38, 0, false, 'legR'],
+  [0.18, 0.65, 0.2, 'shirt', -0.42, 1.1, 0, false, 'armL'],
+  [0.18, 0.65, 0.2, 'shirt', 0.42, 1.1, 0, false, 'armR'],
+  [0.1, 0.14, 0.55, 'gun', 0.42, 0.85, 0.22, false, null],
+  [0.08, 0.22, 0.1, 'mag', 0.42, 0.72, 0.3, false, null],
+];
 
 export function makePlayer(scene) {
+  const mats = {
+    shirt: new THREE.MeshLambertMaterial({ color: PLAYER_COLOR }),
+    skin: new THREE.MeshLambertMaterial({ color: 0xe8b88a }),
+    pants: new THREE.MeshLambertMaterial({ color: 0x222831 }),
+    cap: new THREE.MeshLambertMaterial({ color: 0xc23a2e }),
+    gun: new THREE.MeshLambertMaterial({ color: 0x181818 }),
+    mag: new THREE.MeshLambertMaterial({ color: 0x2a2a2e }),
+  };
   const g = new THREE.Group();
-  const shirt = new THREE.MeshLambertMaterial({ color: PLAYER_COLOR });
-  const skin = new THREE.MeshLambertMaterial({ color: 0xe8b88a });
-  const pants = new THREE.MeshLambertMaterial({ color: 0x222831 });
-  const capMat = new THREE.MeshLambertMaterial({ color: 0xc23a2e });
-  const gunMat = new THREE.MeshLambertMaterial({ color: 0x181818 });
-  const magMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2e });
   g.userData = {};
-  addPart(g, shirt, [0.62, 0.75, 0.36, 0, 1.1, 0, true]);
-  addPart(g, skin, [0.4, 0.4, 0.4, 0, 1.68, 0, true]);
-  addPart(g, capMat, [0.44, 0.14, 0.44, 0, 1.92, 0]); // cap
-  addPart(g, pants, [0.22, 0.75, 0.24, -0.16, 0.38, 0], 'legL');
-  addPart(g, pants, [0.22, 0.75, 0.24, 0.16, 0.38, 0], 'legR');
-  addPart(g, shirt, [0.18, 0.65, 0.2, -0.42, 1.1, 0], 'armL');
-  addPart(g, shirt, [0.18, 0.65, 0.2, 0.42, 1.1, 0], 'armR');
-  // SMG in the right hand, magazine below it
-  addPart(g, gunMat, [0.1, 0.14, 0.55, 0.42, 0.85, 0.22]);
-  addPart(g, magMat, [0.08, 0.22, 0.1, 0.42, 0.72, 0.3]);
+  for (const [w, h, d, mat, x, y, z, shadow, named] of FIGURE_PARTS) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats[mat]);
+    mesh.position.set(x, y, z);
+    if (shadow) mesh.castShadow = true;
+    g.add(mesh);
+    if (named) g.userData[named] = mesh;
+  }
   scene.add(g);
 
-  const p = {
+  return {
     mesh: g,
     x: 0, z: 30, heading: 0, camYaw: 0,
     health: 100, armour: 0, maxArmour: 100,
@@ -70,7 +72,6 @@ export function makePlayer(scene) {
     shootCooldown: 0, sprint: false,
     alive: true,
   };
-  return p;
 }
 
 // Begin a reload if the magazine is short and reserve ammo exists.
@@ -108,9 +109,7 @@ export function stepPlayerOnFoot(p, dt, input, colliders) {
   if (len > 0) {
     mx /= len;
     mz /= len;
-    const nx = p.x + mx * speed * dt;
-    const nz = p.z + mz * speed * dt;
-    const res = collideCircle(nx, nz, 0.5, colliders);
+    const res = collideCircle(p.x + mx * speed * dt, p.z + mz * speed * dt, 0.5, colliders);
     p.x = res.x;
     p.z = res.z;
     p.heading = Math.atan2(mx, mz);

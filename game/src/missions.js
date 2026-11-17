@@ -2,9 +2,9 @@
 // takes jobs from Mara and Benny — five chained chapters with a timer and a
 // payout each, from a first delivery to a casino vault run under 5 stars.
 // Missions are data + a small state machine; the game wires the callbacks.
-// v2.2: same five chapters, rewards, timers and messages as v2.1, rebuilt
-// with one check function per chapter behind a switch instead of a table
-// of closures, and the marker/beacon handling pulled into small helpers.
+// v2.3: same five chapters, rewards, timers and messages as v2.2, with
+// the win checks back in a per-chapter table and the beacon/arrow setup
+// shared by one small helper.
 import * as THREE from 'three';
 import { dist2 } from './rng.js';
 
@@ -16,14 +16,11 @@ export const MISSIONS = [
   { id: 5, chapter: 'CHAPTER 5/5', title: 'Casino Vault Run', reward: 5000, time: 240, objective: 'Kabur ke Garasi Benny dengan wanted 5', brief: 'Mara: "Uang sudah di tangan. Kabur ke garasi Benny — semua polisi kota mengejarmu!"' },
 ];
 
-export function makeMissions(scene, rng, city, hooks) {
-  // hooks: { onMessage(text), onDone(mission), onStart(mission), onObjective(text),
-  //         onChapter(chapter, title), spawnThugs(pos, count), startChase,
-  //         startEscape, startFinale }
-  const beaconMat = new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
-  const beacon = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 40, 16, 1, true), beaconMat);
-  beacon.visible = false;
-  scene.add(beacon);
+function makeBeacon(scene) {
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 40, 16, 1, true), mat);
+  beam.visible = false;
+  scene.add(beam);
   const arrow = new THREE.Mesh(
     new THREE.ConeGeometry(1.1, 2.4, 4),
     new THREE.MeshBasicMaterial({ color: 0xffd23a }),
@@ -31,7 +28,14 @@ export function makeMissions(scene, rng, city, hooks) {
   arrow.rotation.x = Math.PI;
   arrow.visible = false;
   scene.add(arrow);
+  return { beam, arrow };
+}
 
+export function makeMissions(scene, rng, city, hooks) {
+  // hooks: { onMessage(text), onDone(mission), onStart(mission), onObjective(text),
+  //         onChapter(chapter, title), spawnThugs(pos, count), startChase,
+  //         startEscape, startFinale }
+  const { beam, arrow } = makeBeacon(scene);
   const m = {
     index: 0,               // 0-based, MISSIONS.length = done
     phase: 'idle',          // idle | active | done
@@ -49,14 +53,14 @@ export function makeMissions(scene, rng, city, hooks) {
 
   function setMarker(x, z) {
     m.marker = { x, z };
-    beacon.position.set(x, 20, z);
-    beacon.visible = true;
+    beam.position.set(x, 20, z);
+    beam.visible = true;
     arrow.position.set(x, 9, z);
     arrow.visible = true;
   }
   function hideMarker() {
     m.marker = null;
-    beacon.visible = false;
+    beam.visible = false;
     arrow.visible = false;
   }
 
@@ -73,25 +77,13 @@ export function makeMissions(scene, rng, city, hooks) {
     hooks.onObjective(cur.objective);
     hooks.onMessage(`${cur.title} — ${cur.brief}`);
     hooks.onStart(cur);
-    switch (i) {
-      case 0:
-        setMarker(city.casino.x, city.casino.z);
-        break;
-      case 1:
-        hooks.startChase();
-        break;
-      case 2:
-        hooks.startEscape();
-        break;
-      case 3:
-        setMarker(city.casino.x, city.casino.z);
-        break;
-      case 4:
-        hooks.startFinale();
-        setMarker(city.garage.x, city.garage.z);
-        break;
-      default:
-        break;
+    if (i === 0) setMarker(city.casino.x, city.casino.z);
+    else if (i === 1) hooks.startChase();
+    else if (i === 2) hooks.startEscape();
+    else if (i === 3) setMarker(city.casino.x, city.casino.z);
+    else if (i === 4) {
+      hooks.startFinale();
+      setMarker(city.garage.x, city.garage.z);
     }
   }
 
@@ -126,62 +118,57 @@ export function makeMissions(scene, rng, city, hooks) {
     setTimeout(() => start(m.index), 1200);
   }
 
-  // --- one win-check per chapter, in story order ---
-  function checkDelivery(ctx) {
-    const near = dist2(ctx.player.x, ctx.player.z, city.casino.x, city.casino.z) < 100;
-    if (!near) return;
-    hooks.onMessage('Paket diserahkan. Benny: "Bagus. Ada kerjaan lagi buatmu."');
-    complete();
-  }
-
-  function checkChase(ctx) {
-    const target = ctx.chaseTarget;
-    if (!target) {
+  // One win-check per chapter, in story order, as a table.
+  const CHECKS = [
+    (ctx) => {
+      if (dist2(ctx.player.x, ctx.player.z, city.casino.x, city.casino.z) >= 100) return;
+      hooks.onMessage('Paket diserahkan. Benny: "Bagus. Ada kerjaan lagi buatmu."');
       complete();
-      return;
-    }
-    if (target.escaped) {
-      hooks.onMessage('Tono lolos... Mara: "Sial. Kita coba lagi lain kali."');
-      advanceAfterEscape(ctx);
-      return;
-    }
-    setMarker(target.x, target.z);
-  }
-
-  function checkEscape(ctx) {
-    if (ctx.police.state.wanted !== 0) return;
-    hooks.onMessage('Polisi kehilangan jejakmu. Mara: "Bersih. Lanjutkan."');
-    complete();
-  }
-
-  function checkVault(ctx) {
-    if (!m.thugsSpawned) {
-      m.thugsSpawned = true;
-      hooks.spawnThugs({ x: city.casino.x, z: city.casino.z }, 4);
-      hooks.onMessage('Penjaga kasino menghadang! Kalahkan mereka.');
-    }
-    const cleared = m.thugsLeft <= 0 && m.thugsSpawned && ctx.thugsDefeated;
-    if (cleared && !m.vaultTaken) {
-      m.vaultTaken = true;
-      setMarker(city.casino.x + 12, city.casino.z + 8);
-      hooks.onObjective('Ambil uang brankas di Casino Royale');
-      hooks.onMessage('Kasino bersih. Ambil uang brankasnya.');
-      return;
-    }
-    if (!m.vaultTaken) return;
-    const atVault = dist2(ctx.player.x, ctx.player.z, city.casino.x + 12, city.casino.z + 8) < 36;
-    if (!atVault) return;
-    hooks.onMessage('Uang brankas di tangan. Benny: "Cantik. Sekarang hilang."');
-    complete();
-  }
-
-  function checkFinale(ctx) {
-    const home = dist2(ctx.player.x, ctx.player.z, city.garage.x, city.garage.z) < 120;
-    if (!home) return;
-    hooks.onMessage('Daz sampai di garasi Benny. Semua polisi kehilangan jejak.');
-    ctx.police.clearWanted();
-    complete();
-  }
+    },
+    (ctx) => {
+      const target = ctx.chaseTarget;
+      if (!target) {
+        complete();
+        return;
+      }
+      if (target.escaped) {
+        hooks.onMessage('Tono lolos... Mara: "Sial. Kita coba lagi lain kali."');
+        advanceAfterEscape(ctx);
+        return;
+      }
+      setMarker(target.x, target.z);
+    },
+    (ctx) => {
+      if (ctx.police.state.wanted !== 0) return;
+      hooks.onMessage('Polisi kehilangan jejakmu. Mara: "Bersih. Lanjutkan."');
+      complete();
+    },
+    (ctx) => {
+      if (!m.thugsSpawned) {
+        m.thugsSpawned = true;
+        hooks.spawnThugs({ x: city.casino.x, z: city.casino.z }, 4);
+        hooks.onMessage('Penjaga kasino menghadang! Kalahkan mereka.');
+      }
+      const cleared = m.thugsLeft <= 0 && m.thugsSpawned && ctx.thugsDefeated;
+      if (cleared && !m.vaultTaken) {
+        m.vaultTaken = true;
+        setMarker(city.casino.x + 12, city.casino.z + 8);
+        hooks.onObjective('Ambil uang brankas di Casino Royale');
+        hooks.onMessage('Kasino bersih. Ambil uang brankasnya.');
+        return;
+      }
+      if (!m.vaultTaken) return;
+      if (dist2(ctx.player.x, ctx.player.z, city.casino.x + 12, city.casino.z + 8) >= 36) return;
+      hooks.onMessage('Uang brankas di tangan. Benny: "Cantik. Sekarang hilang."');
+      complete();
+    },
+    (ctx) => {
+      if (dist2(ctx.player.x, ctx.player.z, city.garage.x, city.garage.z) >= 120) return;
+      hooks.onMessage('Daz sampai di garasi Benny. Semua polisi kehilangan jejak.');
+      ctx.police.clearWanted();
+      complete();
+    },
+  ];
 
   function tickChaseTimer(dt, ctx) {
     const target = ctx.chaseTarget;
@@ -200,8 +187,8 @@ export function makeMissions(scene, rng, city, hooks) {
 
   function update(dt, ctx) {
     m.t += dt;
-    if (beacon.visible) {
-      beacon.rotation.y += dt * 0.8;
+    if (beam.visible) {
+      beam.rotation.y += dt * 0.8;
       arrow.position.y = 9 + Math.sin(m.t * 3) * 0.8;
     }
     if (m.phase !== 'active') return;
@@ -217,14 +204,7 @@ export function makeMissions(scene, rng, city, hooks) {
     }
     tickChaseTimer(dt, ctx);
     if (m.phase !== 'active') return; // the chase timer may have completed the mission
-    switch (m.index) {
-      case 0: checkDelivery(ctx); break;
-      case 1: checkChase(ctx); break;
-      case 2: checkEscape(ctx); break;
-      case 3: checkVault(ctx); break;
-      case 4: checkFinale(ctx); break;
-      default: break;
-    }
+    CHECKS[m.index]?.(ctx);
   }
 
   const api = {};

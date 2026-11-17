@@ -2,9 +2,9 @@
 // district top-left, mission banner top-center, cash/wanted/weapon/health
 // top-right, round minimap bottom-left, speedometer bottom-right, radio
 // bottom-center. All text in Indonesian, numbers in the winner's style.
-// v2.2: same layout and element ids as v2.1, rebuilt with a grab() lookup,
-// a single update() that walks the corners in order, and a minimap that
-// draws through small paint helpers instead of layered blocks.
+// v2.3: same layout and element ids as v2.2, with the element lookup
+// driven by a table, the update split into per-corner paint functions,
+// and the minimap drawn by one painter with a small draw list.
 function fmtTime(sec) {
   const s = Math.max(0, Math.ceil(sec));
   const mm = Math.floor(s / 60);
@@ -18,53 +18,32 @@ function barColor(value) {
   return '#c23a2e';
 }
 
+// [hud key, element id]
+const ELEMENTS = [
+  ['districtName', 'district-name'], ['districtFlavor', 'district-flavor'],
+  ['missionChapter', 'mission-chapter'], ['missionTitle', 'mission-title'],
+  ['missionCount', 'mission-count'], ['objectiveText', 'objective-text'],
+  ['missionTimer', 'mission-timer'], ['objective', 'objective'],
+  ['chapter', 'chapter'], ['chapterTitle', 'chapter-title'],
+  ['chapterSub', 'chapter-sub'],
+  ['cash', 'cash'], ['stars', 'stars'], ['wantedLabel', 'wanted-label'],
+  ['weapon', 'weapon'], ['healthFill', 'health-fill'],
+  ['healthText', 'health-text'], ['armourFill', 'armour-fill'],
+  ['armourText', 'armour-text'], ['respectText', 'respect-text'],
+  ['clock', 'clock'], ['day', 'day'], ['radioName', 'radio-name'],
+  ['radioFreq', 'radio-freq'], ['speedNum', 'speed-num'],
+  ['gear', 'gear'], ['carName', 'car-name'],
+  ['carHealthFill', 'car-health-fill'], ['carHealthWrap', 'car-health-wrap'],
+  ['speedoRing', 'speedo-ring'], ['message', 'message'],
+  ['minimap', 'minimap'], ['garageHint', 'garage-hint'],
+  ['screenStart', 'screen-start'], ['screenPause', 'screen-pause'],
+  ['screenEnd', 'screen-end'], ['endTitle', 'end-title'],
+  ['endText', 'end-text'], ['help', 'help'],
+];
+
 export function createHud(doc) {
   const el = {};
-  const grab = (key, id) => { el[key] = doc.getElementById(id); };
-  // top-left: district
-  grab('districtName', 'district-name');
-  grab('districtFlavor', 'district-flavor');
-  // top-center: mission + chapter
-  grab('missionChapter', 'mission-chapter');
-  grab('missionTitle', 'mission-title');
-  grab('missionCount', 'mission-count');
-  grab('objectiveText', 'objective-text');
-  grab('missionTimer', 'mission-timer');
-  grab('objective', 'objective');
-  grab('chapter', 'chapter');
-  grab('chapterTitle', 'chapter-title');
-  grab('chapterSub', 'chapter-sub');
-  // top-right: money, wanted, weapon, vitals
-  grab('cash', 'cash');
-  grab('stars', 'stars');
-  grab('wantedLabel', 'wanted-label');
-  grab('weapon', 'weapon');
-  grab('healthFill', 'health-fill');
-  grab('healthText', 'health-text');
-  grab('armourFill', 'armour-fill');
-  grab('armourText', 'armour-text');
-  grab('respectText', 'respect-text');
-  // bottom: clock, radio, speedo, minimap, messages
-  grab('clock', 'clock');
-  grab('day', 'day');
-  grab('radioName', 'radio-name');
-  grab('radioFreq', 'radio-freq');
-  grab('speedNum', 'speed-num');
-  grab('gear', 'gear');
-  grab('carName', 'car-name');
-  grab('carHealthFill', 'car-health-fill');
-  grab('carHealthWrap', 'car-health-wrap');
-  grab('speedoRing', 'speedo-ring');
-  grab('message', 'message');
-  grab('minimap', 'minimap');
-  grab('garageHint', 'garage-hint');
-  // screens + help
-  grab('screenStart', 'screen-start');
-  grab('screenPause', 'screen-pause');
-  grab('screenEnd', 'screen-end');
-  grab('endTitle', 'end-title');
-  grab('endText', 'end-text');
-  grab('help', 'help');
+  for (const [key, id] of ELEMENTS) el[key] = doc.getElementById(id);
 
   const mm = el.minimap.getContext('2d');
   let msgTimer = null;
@@ -94,6 +73,61 @@ export function createHud(doc) {
     if (now - chapterShownAt <= 3.6) return;
     el.chapter.classList.remove('show');
     chapterShownAt = null;
+  }
+
+  function paintWanted(s) {
+    setText(el.stars, '★'.repeat(s.wanted) + '☆'.repeat(5 - s.wanted));
+    el.stars.style.color = s.wanted >= 5 ? '#ff4040' : s.wanted > 0 ? '#ffd23a' : '#888';
+    setText(el.wantedLabel, s.wanted >= 5 ? 'MOST WANTED' : s.wanted > 0 ? `WANTED ${s.wanted}/5` : '');
+    el.wantedLabel.style.color = s.wanted >= 5 ? '#ff5040' : '#ffd23a';
+  }
+
+  function paintVitals(s) {
+    el.healthFill.style.width = `${Math.max(0, s.health)}%`;
+    el.healthFill.style.background = barColor(s.health);
+    setText(el.healthText, `${Math.ceil(Math.max(0, s.health))}`);
+    el.armourFill.style.width = `${Math.max(0, s.armour)}%`;
+    setText(el.armourText, `${Math.ceil(Math.max(0, s.armour))}`);
+    setText(el.cash, `$${s.cash.toLocaleString('id-ID')}`);
+    setText(el.weapon, s.inCar ? '' : (s.reloading ? `${s.weapon} — RELOADING…` : `${s.weapon}  ${s.mag} / ${s.reserve}`));
+    setText(el.respectText, `LV ${s.respectLevel}`);
+  }
+
+  function paintMission(s) {
+    const done = s.missionIndex >= s.missionTotal;
+    setText(el.missionCount, done ? 'SELESAI' : `${s.missionIndex + 1}/${s.missionTotal}`);
+    setText(el.missionTimer, done ? '' : fmtTime(s.missionTimeLeft));
+    el.missionTimer.style.color = !done && s.missionTimeLeft < 30 ? '#ff5040' : '#fff';
+  }
+
+  function paintClockRadio(s) {
+    setText(el.clock, `${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}`);
+    setText(el.day, `DAY ${s.day}`);
+    setText(el.radioName, s.radio);
+    setText(el.radioFreq, s.radioFreq);
+    setText(el.districtName, s.district);
+    setText(el.districtFlavor, s.districtFlavor);
+  }
+
+  function paintSpeedo(s) {
+    if (!s.inCar) {
+      setText(el.speedNum, '0');
+      setText(el.gear, 'ON FOOT');
+      setText(el.carName, '');
+      el.carHealthWrap.style.display = 'none';
+      return;
+    }
+    const kmh = Math.round(Math.abs(s.speedKmh));
+    setText(el.speedNum, `${kmh}`);
+    setText(el.gear, `GEAR ${s.gear}`);
+    setText(el.carName, s.carName || '');
+    el.carHealthWrap.style.display = 'block';
+    el.carHealthFill.style.width = `${Math.max(0, s.carHealth)}%`;
+    el.carHealthFill.style.background = barColor(s.carHealth);
+    // speed ring: 0..150 km/j maps to the 270-degree arc
+    const frac = Math.min(1, kmh / 150);
+    const C = 2 * Math.PI * 88;
+    el.speedoRing.style.strokeDashoffset = String(C * (1 - frac * 0.75));
   }
 
   function drawMinimap(world) {
@@ -194,52 +228,11 @@ export function createHud(doc) {
   }
 
   function update(s) {
-    // --- top-right: wanted stars ---
-    setText(el.stars, '★'.repeat(s.wanted) + '☆'.repeat(5 - s.wanted));
-    el.stars.style.color = s.wanted >= 5 ? '#ff4040' : s.wanted > 0 ? '#ffd23a' : '#888';
-    setText(el.wantedLabel, s.wanted >= 5 ? 'MOST WANTED' : s.wanted > 0 ? `WANTED ${s.wanted}/5` : '');
-    el.wantedLabel.style.color = s.wanted >= 5 ? '#ff5040' : '#ffd23a';
-    // --- top-right: vitals + money + weapon ---
-    el.healthFill.style.width = `${Math.max(0, s.health)}%`;
-    el.healthFill.style.background = barColor(s.health);
-    setText(el.healthText, `${Math.ceil(Math.max(0, s.health))}`);
-    el.armourFill.style.width = `${Math.max(0, s.armour)}%`;
-    setText(el.armourText, `${Math.ceil(Math.max(0, s.armour))}`);
-    setText(el.cash, `$${s.cash.toLocaleString('id-ID')}`);
-    setText(el.weapon, s.inCar ? '' : (s.reloading ? `${s.weapon} — RELOADING…` : `${s.weapon}  ${s.mag} / ${s.reserve}`));
-    setText(el.respectText, `LV ${s.respectLevel}`);
-    // --- top-center: mission counter + timer ---
-    const done = s.missionIndex >= s.missionTotal;
-    setText(el.missionCount, done ? 'SELESAI' : `${s.missionIndex + 1}/${s.missionTotal}`);
-    setText(el.missionTimer, done ? '' : fmtTime(s.missionTimeLeft));
-    el.missionTimer.style.color = !done && s.missionTimeLeft < 30 ? '#ff5040' : '#fff';
-    // --- bottom-center: clock + radio ---
-    setText(el.clock, `${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}`);
-    setText(el.day, `DAY ${s.day}`);
-    setText(el.radioName, s.radio);
-    setText(el.radioFreq, s.radioFreq);
-    // --- top-left: district ---
-    setText(el.districtName, s.district);
-    setText(el.districtFlavor, s.districtFlavor);
-    // --- bottom-right: speedometer ---
-    if (s.inCar) {
-      const kmh = Math.round(Math.abs(s.speedKmh));
-      setText(el.speedNum, `${kmh}`);
-      setText(el.gear, `GEAR ${s.gear}`);
-      setText(el.carName, s.carName || '');
-      el.carHealthWrap.style.display = 'block';
-      el.carHealthFill.style.width = `${Math.max(0, s.carHealth)}%`;
-      el.carHealthFill.style.background = barColor(s.carHealth);
-      // speed ring: 0..150 km/j maps to the 270-degree arc
-      const frac = Math.min(1, kmh / 150);
-      const C = 2 * Math.PI * 88;
-      el.speedoRing.style.strokeDashoffset = String(C * (1 - frac * 0.75));
-    } else {
-      setText(el.speedNum, '0');
-      setText(el.gear, 'ON FOOT');
-      setText(el.carName, '');
-      el.carHealthWrap.style.display = 'none';
-    }
+    paintWanted(s);
+    paintVitals(s);
+    paintMission(s);
+    paintClockRadio(s);
+    paintSpeedo(s);
   }
 
   const hud = {};
