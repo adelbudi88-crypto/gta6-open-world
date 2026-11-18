@@ -1,47 +1,44 @@
-# PORTO AZUL II — open-world crime in a dusk-lit neon city
+# PORTO AZUL II — 5 story missions, police chases, heists, radio and saves
 
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-An original open-world crime game (three.js, vendored under `game/vendor/`):
-explore the city of Porto Azul on foot and by car, steal and drive cars, run
-from the police, and play through a 5-chapter story with Benny, Tono and Mara.
+An open-world crime game set in Porto Azul, a dusk-lit neon city. Daz works five story
+missions with Benny, Tono and Mara — stealing the Comet GT, settling Tono's debt, outrunning
+a police helicopter at MOST WANTED, casing the Casino Royale vault and running it for
+$48,500. Built with three.js (vendored), no external requests, no build step.
 
-## What is in the game
+## How to play
 
-- **A living city at dusk** — Torre Plaza, The Mirage Strip, Palmline Beach,
-  Old Town and Harbor East; traffic, pedestrians, lit windows, neon signs,
-  palms, a sunset sky and wet-looking roads.
-- **5 story missions** — delivery, debt collection, a heat-wave escape, a
-  vault job and the Casino Vault Run, each with a chapter banner, a timer
-  and a cash payout.
-- **Wanted system** — 0–5 stars, police cars, foot cops and a helicopter
-  with a searchlight; reach MOST WANTED at 5 stars.
-- **Economy and progression** — cash, mission payouts, Benny's Garage
-  upgrades (engine, armour, tyres), respect levels, health and armour,
-  a HORNET SMG with ammo.
-- **Full HUD** — minimap with route, mission + timer, cash, wanted stars,
-  health/armour, weapon, radio station, day + clock, district + flavour
-  line, speedometer + gear + car name.
-- **Radio** — 4 procedural WebAudio stations (C to change), engine hum
-  and police sirens.
-- **Save** — progress autosaves to localStorage; continue from the title
-  screen.
+```sh
+node serve.ts
+# open http://localhost:8080
+```
 
-## Controls
+- **WASD** drive / walk, **SHIFT** run, **E** enter / exit car, **SPACE** shoot,
+  **C** change radio station, **M** mute, **ENTER** start.
+- Steal cars, lose the cops, finish missions before the timer runs out.
+- Cash, respect, health, armour and mission progress save to localStorage.
 
-WASD drive / walk · Shift boost · Space handbrake · E enter / exit car ·
-F shoot · R reload · C radio · B garage (near Benny's Garage) · P pause ·
-mouse drag orbits the camera · Enter start.
+## Features
 
-## Play it
+- **5 story missions** with chapter banners (1/5–5/5), timers and payouts up to $25,000
+- **Wanted system 0–5 stars** — pursuit cars, foot cops and a searchlight helicopter; MOST WANTED at 5 stars
+- **Economy** — cash, payouts, respect levels, Benny's Garage
+- **Full HUD** — district + flavor text, mission + timer, clock, cash, wanted stars,
+  HP/armour bars, weapon + ammo, minimap with route, speedometer + gear + car name, radio
+- **Living city** — 22 traffic cars, 40 pedestrians, lit-window towers, neon signs,
+  palms, streetlights, dusk sunset over 5 districts
+- **4 procedural radio stations** (WebAudio, no audio files), engine hum and sirens
+- **Saves** — progress persists in localStorage
 
-`node serve.ts` then open http://localhost:8080. No build step, no
-network requests — everything loads from `game/`.
+## Dossier screenshots
 
-## Screenshots
+`node tools/shots.mjs` renders the four staged mid-action screenshots into
+`screenshots/` (police chase at 137–144 km/h, the vault job on foot, MOST WANTED).
 
-The 4 dossier screenshots are staged mid-action by `tools/shots.mjs`
-(`node tools/shots.mjs`): a high-speed chase, a foot firefight on the
-Strip, a MOST WANTED chase and the final vault run.
+## Credits
+
+Entry for the make.fun bounty [gta6-01](https://make.fun/bounty/gta6-01) — a GTA 6-style
+open-world game. Three.js is vendored under `game/vendor/`.

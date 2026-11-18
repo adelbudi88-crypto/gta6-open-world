@@ -1,110 +1,106 @@
-// Cars for Porto Azul II: low-poly box-built cars (body, cabin, wheels,
-// headlights, taillights, police light bar) and the traffic system — 22 cars
-// looping the road grid in lanes, plus the player's drivable definitions.
-import * as T from 'three';
+// Vehicles for Porto Azul II — player cars and 22-car traffic.
+import * as THREE from 'three';
+import { clamp } from './rng.js';
 
-export const CAR_DEFS = {
-  azul:   { name: 'AZUL COUPE',  color: 0x2f7fd0, topSpeed: 132, accel: 26, grip: 1.0 },
-  comet:  { name: 'COMET GT',    color: 0xd7263d, topSpeed: 168, accel: 34, grip: 1.1 },
-  neon:   { name: 'NEON RUNNER', color: 0x19c2ff, topSpeed: 184, accel: 38, grip: 1.15 },
-  van:    { name: "BENNY'S VAN", color: 0x8a8f98, topSpeed: 112, accel: 20, grip: 0.9 },
-  taxi:   { name: 'CITY TAXI',   color: 0xffc21c, topSpeed: 128, accel: 24, grip: 1.0 },
-};
+const CAR_COLORS = [0xc23b2e, 0x2e6fc2, 0xe8e8e8, 0x222226, 0xd8a020, 0x3fae6a, 0x7a4fd0, 0x999999];
 
-const TRAFFIC_COLORS = [0xd7263d, 0x2f7fd0, 0xffc21c, 0x7dff9a, 0xe8e8e8, 0x22222e, 0xff7b2f, 0x9b59ff, 0x19c2ff, 0xc0c8d0];
-const wheelGeo = new T.CylinderGeometry(0.42, 0.42, 0.32, 10);
-const wheelMat = new T.MeshLambertMaterial({ color: 0x0c0c10 });
-const boxGeo = new T.BoxGeometry(1, 1, 1);
-
-export function makeCarMesh(def, police) {
-  const group = new T.Group();
-  const bodyMat = new T.MeshLambertMaterial({ color: police ? 0x1a1a22 : def.color });
-  const body = new T.Mesh(boxGeo, bodyMat);
-  body.scale.set(2.0, 0.62, 4.4);
-  body.position.y = 0.55;
-  group.add(body);
-  const cabinMat = new T.MeshLambertMaterial({ color: police ? 0x1a1a22 : 0x14141c });
-  const cabin = new T.Mesh(boxGeo, cabinMat);
-  cabin.scale.set(1.7, 0.55, 2.1);
-  cabin.position.set(0, 1.1, -0.25);
-  group.add(cabin);
-  const glass = new T.Mesh(boxGeo, new T.MeshLambertMaterial({ color: 0x9fd8ff, emissive: 0x2a4a5a }));
-  glass.scale.set(1.72, 0.3, 0.9);
-  glass.position.set(0, 1.05, 0.62);
-  group.add(glass);
+export function makeCar(color, opts = {}) {
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshLambertMaterial({ color });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.62, 4.3), bodyMat);
+  body.position.y = 0.62;
+  g.add(body);
+  const cabin = new THREE.Mesh(
+    new THREE.BoxGeometry(1.7, 0.58, 2.1),
+    new THREE.MeshLambertMaterial({ color: opts.cabinColor ?? 0x11131c })
+  );
+  cabin.position.set(0, 1.2, -0.25);
+  g.add(cabin);
+  const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10);
+  const wheelMat = new THREE.MeshLambertMaterial({ color: 0x0a0a0c });
+  const wheels = [];
   for (const [wx, wz] of [[-0.95, 1.45], [0.95, 1.45], [-0.95, -1.45], [0.95, -1.45]]) {
-    const wheel = new T.Mesh(wheelGeo, wheelMat);
-    wheel.rotation.z = Math.PI / 2;
-    wheel.position.set(wx, 0.42, wz);
-    group.add(wheel);
+    const w = new THREE.Mesh(wheelGeo, wheelMat);
+    w.rotation.z = Math.PI / 2;
+    w.position.set(wx, 0.38, wz);
+    g.add(w);
+    wheels.push(w);
   }
-  const headMat = new T.MeshBasicMaterial({ color: 0xfff2b0 });
+  const headMat = new THREE.MeshBasicMaterial({ color: 0xfff6c8 });
   for (const hx of [-0.7, 0.7]) {
-    const head = new T.Mesh(boxGeo, headMat);
-    head.scale.set(0.42, 0.18, 0.1);
-    head.position.set(hx, 0.55, 2.22);
-    group.add(head);
+    const h = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.1), headMat);
+    h.position.set(hx, 0.62, 2.16);
+    g.add(h);
   }
-  const tailMat = new T.MeshBasicMaterial({ color: 0xff2e4d });
+  const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2233 });
   for (const tx of [-0.7, 0.7]) {
-    const tail = new T.Mesh(boxGeo, tailMat);
-    tail.scale.set(0.42, 0.16, 0.1);
-    tail.position.set(tx, 0.6, -2.22);
-    group.add(tail);
+    const t = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.1), tailMat);
+    t.position.set(tx, 0.62, -2.16);
+    g.add(t);
   }
-  let lightBar = null;
-  if (police) {
-    const stripe = new T.Mesh(boxGeo, new T.MeshBasicMaterial({ color: 0xffffff }));
-    stripe.scale.set(2.02, 0.2, 0.5);
-    stripe.position.set(0, 0.62, 0);
-    group.add(stripe);
-    lightBar = new T.Group();
-    const red = new T.Mesh(boxGeo, new T.MeshBasicMaterial({ color: 0xff2e4d }));
-    red.scale.set(0.7, 0.22, 0.5); red.position.x = -0.45;
-    const blue = new T.Mesh(boxGeo, new T.MeshBasicMaterial({ color: 0x2e7bff }));
-    blue.scale.set(0.7, 0.22, 0.5); blue.position.x = 0.45;
-    lightBar.add(red); lightBar.add(blue);
-    lightBar.position.set(0, 1.5, -0.25);
-    group.add(lightBar);
-    const plate = new T.Mesh(boxGeo, new T.MeshBasicMaterial({ color: 0xffffff }));
-    plate.scale.set(0.9, 0.3, 0.06);
-    plate.position.set(0, 0.42, -2.26);
-    group.add(plate);
+  if (opts.police) {
+    const bar = new THREE.Group();
+    const red = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.22, 0.4), new THREE.MeshBasicMaterial({ color: 0xff2030 }));
+    red.position.x = -0.4;
+    const blue = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.22, 0.4), new THREE.MeshBasicMaterial({ color: 0x2040ff }));
+    blue.position.x = 0.4;
+    bar.add(red);
+    bar.add(blue);
+    bar.position.set(0, 1.62, -0.25);
+    g.add(bar);
+    g.userData.lightBar = bar;
+    g.userData.lightRed = red;
+    g.userData.lightBlue = blue;
   }
-  return { group, lightBar };
+  g.userData.wheels = wheels;
+  return g;
 }
 
-export function createTraffic(scene, rng, roadLines) {
-  const cars = [];
-  for (let i = 0; i < 22; i += 1) {
-    const def = { name: 'TRAFFIC', color: rng.pick(TRAFFIC_COLORS), topSpeed: 60, accel: 20, grip: 1 };
-    const { group } = makeCarMesh(def, false);
-    const horizontal = rng.chance(0.5);
-    const line = rng.pick(roadLines);
-    const lane = rng.chance(0.5) ? 3.4 : -3.4;
-    const along = rng.range(-200, 200);
-    const dir = rng.chance(0.5) ? 1 : -1;
-    group.position.set(horizontal ? along : line + lane, 0, horizontal ? line + lane : along);
-    group.rotation.y = horizontal ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
-    scene.add(group);
-    cars.push({
-      group, horizontal, line, lane, dir,
-      along, speed: rng.range(9, 16),
-      x: group.position.x, z: group.position.z,
-    });
+// 22 traffic cars cruising the road grid, wrapping at the city edge.
+export class Traffic {
+  constructor(scene, rng) {
+    this.cars = [];
+    const roads = [-120, -60, 0, 60, 120];
+    for (let i = 0; i < 22; i++) {
+      const horizontal = rng.chance(0.5);
+      const road = rng.pick(roads);
+      const car = makeCar(rng.pick(CAR_COLORS));
+      const dir = rng.chance(0.5) ? 1 : -1;
+      const lane = rng.range(1.6, 3.2) * (rng.chance(0.5) ? 1 : -1);
+      const along = rng.range(-190, 190);
+      car.position.set(horizontal ? along : road + lane, 0, horizontal ? road + lane : along);
+      car.rotation.y = horizontal ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
+      scene.add(car);
+      this.cars.push({
+        mesh: car,
+        horizontal,
+        road,
+        lane,
+        dir,
+        speed: rng.range(9, 16),
+        along,
+      });
+    }
   }
-  return {
-    cars,
-    update(dt, frozen) {
-      if (frozen) return;
-      for (const c of cars) {
-        c.along += c.dir * c.speed * dt;
-        if (c.along > 210) c.along = -210;
-        if (c.along < -210) c.along = 210;
-        if (c.horizontal) { c.group.position.x = c.along; c.group.position.z = c.line + c.lane; }
-        else { c.group.position.z = c.along; c.group.position.x = c.line + c.lane; }
-        c.x = c.group.position.x; c.z = c.group.position.z;
+
+  update(dt) {
+    for (const c of this.cars) {
+      c.along += c.dir * c.speed * dt;
+      if (c.along > 195) c.along = -195;
+      if (c.along < -195) c.along = 195;
+      if (c.horizontal) {
+        c.mesh.position.x = c.along;
+        c.mesh.position.z = c.road + c.lane;
+      } else {
+        c.mesh.position.x = c.road + c.lane;
+        c.mesh.position.z = c.along;
       }
-    },
-  };
+      for (const w of c.mesh.userData.wheels) w.rotation.x += c.speed * dt * 2;
+    }
+  }
+}
+
+// Speed (km/h) -> gear 1..6. 137 and 144 km/h both read GEAR 6.
+export function gearForSpeed(kmh) {
+  return clamp(1 + Math.floor(Math.max(0, kmh) / 24), 1, 6);
 }

@@ -1,34 +1,27 @@
-// Save / load for Porto Azul II. Progress autosaves to localStorage after
-// every mission; a failed parse or a disabled store just starts a new game.
-const KEY = 'porto-azul-ii-save-v1';
+// Save system for Porto Azul II — cash, respect, mission progress in localStorage.
+const KEY = 'porto-azul-2-save-v1';
 
 export function loadSave() {
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data || typeof data.cash !== 'number') return null;
+    if (!data || typeof data !== 'object') return null;
     return data;
-  } catch {
+  } catch (e) {
     return null;
   }
 }
 
-export function writeSave(state) {
+export function writeSave(data) {
   try {
-    window.localStorage.setItem(KEY, JSON.stringify({
-      cash: Math.floor(state.cash),
-      missionIndex: state.missionIndex,
-      respect: state.respect,
-      upgrades: state.upgrades,
-      day: state.day,
-      bestCash: Math.floor(state.bestCash),
-    }));
-  } catch {
-    // Storage off (private window): the session just does not persist.
+    localStorage.setItem(KEY, JSON.stringify(data));
+    return true;
+  } catch (e) {
+    return false;
   }
 }
 
 export function clearSave() {
-  try { window.localStorage.removeItem(KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(KEY); } catch (e) { /* storage unavailable */ }
 }
