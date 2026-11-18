@@ -1,4 +1,4 @@
-# Porto Azul II — build + local ignores
+# Porto Azul II — build ignores
 node_modules/
 dist/
 *.local

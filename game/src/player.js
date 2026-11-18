@@ -1,125 +1,170 @@
-// Player Daz for Porto Azul II — on foot or driving, health/armour/weapon.
+// Player Daz: on foot or in a car, with health, armour, cash, respect,
+// a HORNET SMG and garage upgrades. Arcade movement — no physics engine.
 import * as THREE from 'three';
-import { clamp } from './rng.js';
-import { gearForSpeed } from './vehicles.js';
+import { makeCarMesh, gearFor } from './vehicles.js';
 
-export class Player {
-  constructor(scene) {
-    this.scene = scene;
-    this.mesh = new THREE.Group();
-    const jacket = new THREE.Mesh(
-      new THREE.BoxGeometry(0.62, 0.9, 0.36),
-      new THREE.MeshLambertMaterial({ color: 0xd84040 })
-    );
-    jacket.position.y = 1.05;
-    this.mesh.add(jacket);
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.25, 12, 10),
-      new THREE.MeshLambertMaterial({ color: 0xd9a066 })
-    );
-    head.position.y = 1.72;
-    this.mesh.add(head);
-    const legs = new THREE.Mesh(
-      new THREE.BoxGeometry(0.52, 0.68, 0.32),
-      new THREE.MeshLambertMaterial({ color: 0x1c2436 })
-    );
-    legs.position.y = 0.34;
-    this.mesh.add(legs);
-    this.mesh.position.set(0, 0, 0);
-    scene.add(this.mesh);
+export function createPlayer(scene) {
+  const mesh = new THREE.Group();
+  const jacket = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 1.05, 0.35),
+    new THREE.MeshStandardMaterial({ color: 0x1e6fd8, roughness: 0.85 }),
+  );
+  jacket.position.y = 1.05;
+  mesh.add(jacket);
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.26, 12, 12),
+    new THREE.MeshStandardMaterial({ color: 0xd8a077, roughness: 0.8 }),
+  );
+  head.position.y = 1.85;
+  mesh.add(head);
+  const legs = new THREE.Mesh(
+    new THREE.BoxGeometry(0.52, 0.6, 0.32),
+    new THREE.MeshStandardMaterial({ color: 0x1c1c26, roughness: 0.9 }),
+  );
+  legs.position.y = 0.3;
+  mesh.add(legs);
+  const gun = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.12, 0.85),
+    new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.7 }),
+  );
+  gun.position.set(0.35, 1.2, 0.4);
+  mesh.add(gun);
+  mesh.position.set(0, 0, 20);
+  scene.add(mesh);
 
-    this.pos = this.mesh.position;
-    this.heading = Math.PI; // facing -z (north) by default
-    this.speed = 0; // km/h while driving
-    this.onFoot = true;
-    this.car = null;
-    this.carName = '';
-    this.health = 100;
-    this.armour = 50;
-    this.weapon = { name: 'HORNET SMG', ammo: 30, reserve: 120 };
-    this.walkPhase = 0;
+  const state = {
+    mesh,
+    pos: mesh.position,
+    heading: 0,
+    onFoot: true,
+    car: null,
+    carName: '',
+    speedKmh: 0,
+    health: 100,
+    armour: 50,
+    cash: 0,
+    respect: 1,
+    weapon: { name: 'HORNET SMG', mag: 30, reserve: 120 },
+    upgrades: { engine: 0, armour: 0, handling: 0 },
+    busted: false,
+    nearCar: null,
+  };
+
+  let speed = 0;
+  const TOP_SPEED = 178;
+
+  function spawnCar(name, color, x, z, heading) {
+    const car = makeCarMesh(THREE, color, name);
+    car.position.set(x, 0, z);
+    car.rotation.y = heading;
+    scene.add(car);
+    return car;
   }
 
-  enterCar(carMesh, carName) {
-    this.car = carMesh;
-    this.carName = carName;
-    this.onFoot = false;
-    this.speed = 0;
-    this.mesh.visible = false;
-  }
-
-  exitCar() {
-    if (!this.car) return;
-    this.pos.set(this.car.position.x - 2.4, 0, this.car.position.z);
-    this.heading = this.car.rotation.y;
-    this.car = null;
-    this.carName = '';
-    this.onFoot = true;
-    this.speed = 0;
-    this.mesh.visible = true;
-    this.mesh.position.copy(this.pos);
-    this.mesh.rotation.y = this.heading;
-  }
-
-  get speedKmh() {
-    return this.onFoot ? 0 : this.speed;
-  }
-
-  get gear() {
-    return this.onFoot ? 0 : gearForSpeed(this.speed);
-  }
-
-  takeDamage(amount) {
-    let rest = amount;
-    if (this.armour > 0) {
-      const absorbed = Math.min(this.armour, rest);
-      this.armour -= absorbed;
-      rest -= absorbed;
-    }
-    this.health = Math.max(0, this.health - rest);
-    return this.health <= 0;
-  }
-
-  update(dt, input, frozen) {
-    if (frozen) return;
-    if (this.car) {
-      const accel = 46;
-      const brake = 70;
-      const maxSpeed = 156;
-      if (input.forward) this.speed = Math.min(maxSpeed, this.speed + accel * dt);
-      else if (input.back) this.speed = Math.max(-28, this.speed - brake * dt);
-      else this.speed = this.speed > 0 ? Math.max(0, this.speed - 22 * dt) : Math.min(0, this.speed + 22 * dt);
-      const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
-      const turnRate = 1.9 * clamp(Math.abs(this.speed) / 40, 0.25, 1);
-      this.heading += steer * turnRate * dt * (this.speed >= 0 ? 1 : -1);
-      const fx = Math.sin(this.heading);
-      const fz = Math.cos(this.heading);
-      // The car nose points along (sin heading, cos heading); drive that way.
-      this.car.position.x += fx * (this.speed / 3.6) * dt;
-      this.car.position.z += fz * (this.speed / 3.6) * dt;
-      this.car.position.x = clamp(this.car.position.x, -200, 200);
-      this.car.position.z = clamp(this.car.position.z, -200, 200);
-      this.car.rotation.y = this.heading;
-      for (const w of this.car.userData.wheels) w.rotation.x += (this.speed / 3.6) * dt * 2;
-      this.pos.copy(this.car.position);
-    } else {
-      const mx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-      const mz = (input.back ? 1 : 0) - (input.forward ? 1 : 0);
-      const len = Math.hypot(mx, mz);
-      if (len > 0) {
-        const sp = input.run ? 9 : 5;
-        this.pos.x += (mx / len) * sp * dt;
-        this.pos.z += (mz / len) * sp * dt;
-        this.heading = Math.atan2(mx, mz) + Math.PI;
-        this.mesh.rotation.y = this.heading;
-        this.walkPhase += dt * 9;
-        this.mesh.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.05;
-      } else {
-        this.mesh.position.y = 0;
+  return {
+    state,
+    get gear() { return gearFor(state.speedKmh); },
+    spawnCar,
+    enterCar(car, name) {
+      state.car = car;
+      state.carName = name;
+      state.onFoot = false;
+      mesh.visible = false;
+      speed = 0;
+    },
+    exitCar() {
+      if (!state.car) return;
+      const c = state.car;
+      state.pos.set(c.position.x + 3, 0, c.position.z + 2);
+      state.heading = c.rotation.y;
+      mesh.position.copy(state.pos);
+      mesh.rotation.y = state.heading;
+      mesh.visible = true;
+      state.car = null;
+      state.carName = '';
+      state.speedKmh = 0;
+      speed = 0;
+    },
+    drive(dt, input) {
+      if (!state.car) return;
+      const engineBoost = 1 + state.upgrades.engine * 0.12;
+      const accel = 26 * engineBoost;
+      const steer = (1 + state.upgrades.handling * 0.15) * 1.9;
+      if (input.forward) speed += accel * dt;
+      else if (input.back) speed -= 20 * dt;
+      else speed -= Math.sign(speed) * Math.min(Math.abs(speed), 9 * dt);
+      if (input.boost) speed += 14 * dt;
+      const max = TOP_SPEED * engineBoost;
+      speed = Math.max(-22, Math.min(max, speed));
+      const heading = state.car.rotation.y;
+      if (Math.abs(speed) > 0.5) {
+        const turn = (input.left ? 1 : 0) - (input.right ? 1 : 0);
+        state.car.rotation.y += turn * steer * dt * Math.sign(speed) * Math.min(1, Math.abs(speed) / 30);
       }
-      this.pos.x = clamp(this.pos.x, -200, 200);
-      this.pos.z = clamp(this.pos.z, -200, 200);
-      this.mesh.position.copy(this.pos);
-    }
-  }
+      const h = state.car.rotation.y;
+      state.car.position.x += Math.sin(h) * (speed / 3.6) * dt;
+      state.car.position.z += Math.cos(h) * (speed / 3.6) * dt;
+      const p = state.car.position;
+      p.x = Math.max(-248, Math.min(248, p.x));
+      p.z = Math.max(-248, Math.min(248, p.z));
+      state.pos.copy(p);
+      state.speedKmh = Math.abs(speed) * 1.0;
+      state.heading = h;
+    },
+    walk(dt, input) {
+      const walkSpeed = input.boost ? 9 : 4.5;
+      let mx = 0;
+      let mz = 0;
+      if (input.forward) mz += 1;
+      if (input.back) mz -= 1;
+      if (input.left) mx -= 1;
+      if (input.right) mx += 1;
+      if (mx === 0 && mz === 0) { state.speedKmh = 0; return; }
+      const len = Math.hypot(mx, mz);
+      mx /= len;
+      mz /= len;
+      state.heading = Math.atan2(mx, mz);
+      mesh.rotation.y = state.heading;
+      mesh.position.x += mx * walkSpeed * dt;
+      mesh.position.z += mz * walkSpeed * dt;
+      mesh.position.x = Math.max(-248, Math.min(248, mesh.position.x));
+      mesh.position.z = Math.max(-248, Math.min(248, mesh.position.z));
+      state.pos.copy(mesh.position);
+      state.speedKmh = walkSpeed * 3.6 * 0.35;
+    },
+    shoot() {
+      if (state.weapon.mag <= 0) {
+        if (state.weapon.reserve > 0) {
+          const take = Math.min(30, state.weapon.reserve);
+          state.weapon.mag = take;
+          state.weapon.reserve -= take;
+        }
+        return false;
+      }
+      state.weapon.mag -= 1;
+      return true;
+    },
+    damage(amount) {
+      let left = amount;
+      const absorb = Math.min(state.armour, left * 0.6);
+      state.armour -= absorb;
+      left -= absorb;
+      state.health -= left;
+      if (state.health <= 0) {
+        state.health = 0;
+        state.busted = true;
+      }
+    },
+    heal() {
+      state.health = 100;
+      state.armour = 50 + state.upgrades.armour * 25;
+      state.busted = false;
+    },
+    addCash(amount) {
+      state.cash += amount;
+      const lvl = 1 + Math.floor(state.cash / 15000);
+      if (lvl > state.respect) state.respect = Math.min(10, lvl);
+    },
+    resetSpeed() { speed = 0; state.speedKmh = 0; },
+  };
 }

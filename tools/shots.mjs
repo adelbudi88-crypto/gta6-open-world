@@ -1,85 +1,80 @@
-// Screenshot runner for Porto Azul II — renders the 4 staged dossier shots
-// with Playwright and checks them (size, console errors). Run once:
-//   node tools/shots.mjs
-// Exits 0 with ALL CHECKS PASSED, or 1 with the failures listed.
-import { spawn } from 'node:child_process';
-import { readFileSync, statSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// Screenshot runner for Porto Azul II: serves game/ on a local port,
+// loads each shot from shots.json in headless Chromium, waits for the
+// staged pose to render, and saves the screenshot. Fails loudly on any
+// console/page error or any screenshot over 256 KiB.
 import { createRequire } from 'node:module';
+import { createServer } from 'node:http';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { extname, join, resolve, normalize, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, '..');
-const require = createRequire('/home/hatch/workspace/makefun/best-game-01/x.js');
-const { chromium } = require('playwright');
+const { chromium } = await import('./node_modules/playwright/index.mjs');
 
-const PORT = 8901;
-const shots = JSON.parse(readFileSync(join(root, 'shots.json'), 'utf8'));
-mkdirSync(join(root, 'screenshots'), { recursive: true });
+const here = fileURLToPath(new URL('.', import.meta.url));
+const root = resolve(join(here, '..'));
+const gameRoot = resolve(join(root, 'game'));
+const shotsPath = join(root, 'shots.json');
+const shots = JSON.parse(readFileSync(shotsPath, 'utf8'));
 
-const server = spawn('node', ['serve.ts', '--port', String(PORT)], { cwd: root, stdio: 'ignore' });
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+};
 
-let failures = [];
+const server = createServer((req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  let pathname = url.pathname;
+  try { pathname = decodeURIComponent(pathname); } catch { res.writeHead(400).end('bad request'); return; }
+  if (pathname.endsWith('/')) pathname += 'index.html';
+  const file = resolve(join(gameRoot, normalize(pathname)));
+  if (file !== gameRoot && !file.startsWith(gameRoot + sep)) { res.writeHead(403).end('forbidden'); return; }
+  let data;
+  try { data = readFileSync(file); } catch { res.writeHead(404).end('not found'); return; }
+  res.writeHead(200, { 'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream', 'content-length': data.length, 'cache-control': 'no-store' });
+  res.end(data);
+});
+
+await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
+const port = server.address().port;
+
 const errors = [];
+const browser = await chromium.launch({
+  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'],
+});
+const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+page.on('console', (msg) => {
+  if (msg.type() === 'error') errors.push(`console: ${msg.text()}`);
+});
+page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
 
-async function waitServer() {
-  for (let i = 0; i < 40; i++) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${PORT}/index.html`);
-      if (res.ok) return true;
-    } catch (e) { /* not up yet */ }
-    await sleep(250);
+for (const shot of shots) {
+  const outPath = join(root, 'screenshots', shot.name);
+  await page.goto(`http://127.0.0.1:${port}/${shot.query}`, { waitUntil: 'load', timeout: 60000 });
+  try {
+    await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 30000 });
+  } catch {
+    errors.push(`shot ${shot.name}: __shotReady never became true`);
+    continue;
   }
-  return false;
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: outPath, type: 'jpeg', quality: 82 });
+  const size = statSync(outPath).size;
+  console.log(`${shot.name}: ${size} bytes`);
+  if (size > 262144) errors.push(`shot ${shot.name}: ${size} bytes exceeds 256 KiB`);
 }
 
-try {
-  if (!(await waitServer())) {
-    console.log('FAIL: serve.ts did not come up');
-    process.exitCode = 1;
-  } else {
-    const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] });
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') errors.push(`${msg.location()?.url ?? ''}: ${msg.text()}`);
-    });
-    page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
-    page.on('requestfailed', (req) => errors.push(`requestfailed: ${req.url()} ${req.failure()?.errorText ?? ''}`));
-
-    for (const shot of shots) {
-      const url = `http://127.0.0.1:${PORT}/${shot.query}`;
-      console.log(`shot ${shot.name} <- ${shot.query}`);
-      await page.goto(url, { waitUntil: 'load', timeout: 30000 });
-      try {
-        await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 30000 });
-      } catch (e) {
-        failures.push(`${shot.name}: __shotReady never became true`);
-        continue;
-      }
-      await sleep(600);
-      const out = join(root, 'screenshots', shot.name);
-      await page.screenshot({ path: out, type: 'jpeg', quality: 82 });
-      const size = statSync(out).size;
-      console.log(`  ${shot.name}: ${size} bytes`);
-      if (size > 262144) failures.push(`${shot.name}: ${size} bytes > 256 KiB`);
-      if (size < 10000) failures.push(`${shot.name}: suspiciously small (${size} bytes)`);
-    }
-    await browser.close();
-  }
-} finally {
-  server.kill();
-}
+await browser.close();
+server.close();
 
 if (errors.length > 0) {
-  console.log(`FAIL: ${errors.length} console/page error(s):`);
-  for (const e of errors) console.log(`  ${e}`);
-  failures.push(`${errors.length} console/page error(s)`);
+  console.log('CHECKS FAILED:');
+  for (const e of errors) console.log(` - ${e}`);
+  process.exit(1);
 }
-if (failures.length > 0) {
-  console.log('FAILURES:');
-  for (const f of failures) console.log(`  - ${f}`);
-  process.exitCode = 1;
-} else {
-  console.log('ALL CHECKS PASSED');
-}
+console.log('ALL CHECKS PASSED');

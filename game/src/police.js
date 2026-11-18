@@ -1,165 +1,180 @@
-// Police for Porto Azul II — pursuit cars, foot cops and a searchlight helicopter.
+// Wanted system: 0–5 stars. Pursuit cars ram gently, foot cops close in,
+// and at 3+ stars a helicopter circles with a searchlight beam. Damage is
+// deliberately gentle (12/s ram, 10/s foot) so chases stay fun.
 import * as THREE from 'three';
-import { makeCar } from './vehicles.js';
-import { clamp } from './rng.js';
+import { makeCarMesh } from './vehicles.js';
+import { makeRng } from './rng.js';
 
-export class Police {
-  constructor(scene) {
-    this.scene = scene;
-    this.cars = [];
-    for (let i = 0; i < 3; i++) {
-      const car = makeCar(0x101014, { police: true, cabinColor: 0xe8e8e8 });
-      // White doors read as a police livery.
-      const door = new THREE.Mesh(
-        new THREE.BoxGeometry(2.04, 0.4, 1.6),
-        new THREE.MeshLambertMaterial({ color: 0xe8e8e8 })
-      );
-      door.position.y = 0.62;
-      car.add(door);
-      car.position.set(-40 + i * 40, 0, -20 - i * 25);
-      scene.add(car);
-      this.cars.push({ mesh: car, speed: 0 });
-    }
-    // Foot cops.
-    this.cops = [];
-    for (let i = 0; i < 4; i++) {
-      const g = new THREE.Group();
-      const body = new THREE.Mesh(
-        new THREE.BoxGeometry(0.6, 0.9, 0.35),
-        new THREE.MeshLambertMaterial({ color: 0x1a2a5e })
-      );
-      body.position.y = 1.05;
-      g.add(body);
-      const head = new THREE.Mesh(
-        new THREE.SphereGeometry(0.24, 10, 8),
-        new THREE.MeshLambertMaterial({ color: 0xd9a066 })
-      );
-      head.position.y = 1.68;
-      g.add(head);
-      const cap = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.26, 0.26, 0.12, 10),
-        new THREE.MeshLambertMaterial({ color: 0x0d1440 })
-      );
-      cap.position.y = 1.86;
-      g.add(cap);
-      const legs = new THREE.Mesh(
-        new THREE.BoxGeometry(0.5, 0.65, 0.3),
-        new THREE.MeshLambertMaterial({ color: 0x141824 })
-      );
-      legs.position.y = 0.33;
-      g.add(legs);
-      g.position.set(30 + i * 12, 0, 80);
-      scene.add(g);
-      this.cops.push({ mesh: g, phase: i * 1.7 });
-    }
-    // Helicopter with a searchlight cone.
-    this.heli = new THREE.Group();
-    const heliBody = new THREE.Mesh(
-      new THREE.BoxGeometry(3.2, 1.4, 6),
-      new THREE.MeshLambertMaterial({ color: 0x1a1a20 })
+export function createPolice(scene) {
+  const rng = makeRng(99);
+  const group = new THREE.Group();
+  scene.add(group);
+
+  const pursuit = [];
+  for (let i = 0; i < 4; i++) {
+    const car = makeCarMesh(THREE, 0x111122, 'Police Interceptor');
+    const bar = new THREE.Mesh(
+      new THREE.BoxGeometry(1.4, 0.18, 0.5),
+      new THREE.MeshBasicMaterial({ color: i % 2 ? 0xff2222 : 0x2244ff }),
     );
-    this.heli.add(heliBody);
-    const tail = new THREE.Mesh(
-      new THREE.BoxGeometry(0.5, 0.5, 5),
-      new THREE.MeshLambertMaterial({ color: 0x1a1a20 })
-    );
-    tail.position.set(0, 0.3, -5);
-    this.heli.add(tail);
-    this.rotor = new THREE.Mesh(
-      new THREE.BoxGeometry(9, 0.12, 0.7),
-      new THREE.MeshLambertMaterial({ color: 0x333338 })
-    );
-    this.rotor.position.y = 1;
-    this.heli.add(this.rotor);
-    this.beam = new THREE.Mesh(
-      new THREE.ConeGeometry(7, 42, 20, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false })
-    );
-    this.beam.position.y = -21;
-    this.beam.rotation.x = Math.PI;
-    this.heli.add(this.beam);
-    this.heli.position.set(0, 46, -40);
-    scene.add(this.heli);
-    this.flash = 0;
+    bar.position.set(0, 1.42, -0.2);
+    car.add(bar);
+    car.visible = false;
+    group.add(car);
+    pursuit.push({ mesh: car, bar, active: false, speed: 0 });
   }
 
-  // Chase the player when wanted > 0; hover the heli above them. Frozen in shot mode.
-  update(dt, t, playerPos, wanted) {
-    this.flash += dt;
-    const on = Math.floor(this.flash * 3) % 2 === 0;
-    for (const c of this.cars) {
-      c.mesh.userData.lightRed.material.color.setHex(on ? 0xff2030 : 0x551018);
-      c.mesh.userData.lightBlue.material.color.setHex(on ? 0x18204a : 0x2040ff);
-    }
-    const active = wanted > 0;
-    this.heli.visible = active;
-    this.beam.visible = active;
-    if (!active) return;
-    const chaseSpeed = 10 + wanted * 4.5;
-    for (let i = 0; i < this.cars.length; i++) {
-      const c = this.cars[i];
-      const m = c.mesh;
-      // Staggered flank offsets so pursuit cars do not ram the player.
-      const tx = playerPos.x + (i === 0 ? -9 : i === 1 ? 9 : 0);
-      const tz = playerPos.z + (i === 2 ? -12 : 4);
-      const dx = tx - m.position.x;
-      const dz = tz - m.position.z;
-      const dist = Math.hypot(dx, dz) || 1;
-      const step = Math.min(chaseSpeed * dt, dist);
-      m.position.x += (dx / dist) * step;
-      m.position.z += (dz / dist) * step;
-      m.rotation.y = Math.atan2(dx, dz);
-      for (const w of m.userData.wheels) w.rotation.x += chaseSpeed * dt * 2;
-    }
-    // Heli holds above and slightly ahead of the player, rotor spinning.
-    this.heli.position.x += (playerPos.x - this.heli.position.x) * Math.min(1, dt * 1.2);
-    this.heli.position.z += (playerPos.z + 6 - this.heli.position.z) * Math.min(1, dt * 1.2);
-    this.heli.position.y = 46 + Math.sin(t * 0.7) * 1.5;
-    this.rotor.rotation.y += dt * 22;
-    // Foot cops close in slowly on foot.
-    for (const cop of this.cops) {
-      const m = cop.mesh;
-      const dx = playerPos.x - m.position.x;
-      const dz = playerPos.z - m.position.z;
-      const dist = Math.hypot(dx, dz) || 1;
-      if (dist > 6) {
-        m.position.x += (dx / dist) * 2.4 * dt;
-        m.position.z += (dz / dist) * 2.4 * dt;
-        m.rotation.y = Math.atan2(dx, dz);
+  const cops = [];
+  for (let i = 0; i < 6; i++) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.58, 1.05, 0.34),
+      new THREE.MeshStandardMaterial({ color: 0x14143c, roughness: 0.85 }),
+    );
+    body.position.y = 1.05;
+    g.add(body);
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.25, 10, 10),
+      new THREE.MeshStandardMaterial({ color: 0xd8a077, roughness: 0.8 }),
+    );
+    head.position.y = 1.82;
+    g.add(head);
+    const cap = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.26, 0.27, 0.12, 10),
+      new THREE.MeshStandardMaterial({ color: 0x0a0a20, roughness: 0.6 }),
+    );
+    cap.position.y = 2.0;
+    g.add(cap);
+    g.visible = false;
+    group.add(g);
+    cops.push({ mesh: g, active: false });
+  }
+
+  // Helicopter with a visible searchlight beam.
+  const heli = new THREE.Group();
+  const heliBody = new THREE.Mesh(
+    new THREE.BoxGeometry(2.2, 1.4, 5.2),
+    new THREE.MeshStandardMaterial({ color: 0x1a1a24, roughness: 0.4, metalness: 0.5 }),
+  );
+  heli.add(heliBody);
+  const rotor = new THREE.Mesh(
+    new THREE.BoxGeometry(9, 0.12, 0.6),
+    new THREE.MeshStandardMaterial({ color: 0x333340, roughness: 0.5, metalness: 0.6 }),
+  );
+  rotor.position.y = 0.9;
+  heli.add(rotor);
+  const beam = new THREE.Mesh(
+    new THREE.ConeGeometry(4.5, 42, 16, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xfff6c0, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  beam.position.y = -21;
+  beam.rotation.x = Math.PI;
+  heli.add(beam);
+  const spot = new THREE.SpotLight(0xfff2b0, 400, 90, 0.35, 0.5, 1.2);
+  spot.position.set(0, 0, 0);
+  heli.add(spot);
+  heli.add(spot.target);
+  spot.target.position.set(0, -42, 0);
+  heli.visible = false;
+  group.add(heli);
+
+  let wanted = 0;
+  let heat = 0;
+  let heliAngle = 0;
+
+  function applyVisibility() {
+    const nCars = wanted >= 1 ? Math.min(4, wanted + 1) : 0;
+    pursuit.forEach((c, i) => { c.active = i < nCars; c.mesh.visible = i < nCars; });
+    const nCops = wanted >= 2 ? Math.min(6, wanted * 2) : 0;
+    cops.forEach((c, i) => { c.active = i < nCops; c.mesh.visible = i < nCops; });
+    heli.visible = wanted >= 3;
+  }
+
+  return {
+    get wanted() { return wanted; },
+    get mostWanted() { return wanted >= 5; },
+    setWanted(n) {
+      wanted = Math.max(0, Math.min(5, Math.round(n)));
+      heat = wanted * 20;
+      applyVisibility();
+    },
+    raise(amount) { this.setWanted(wanted + amount); },
+    lower(amount) { this.setWanted(wanted - amount); },
+    pursuit,
+    cops,
+    heli,
+    placeForShot(kind, playerPos) {
+      // Stage pursuit cars to the FLANKS so they never occlude the player.
+      const flank = [
+        [-9, 6], [9, 7], [-10, -8], [10, -9],
+      ];
+      pursuit.forEach((c, i) => {
+        const [dx, dz] = flank[i % flank.length];
+        c.mesh.position.set(playerPos.x + dx, 0, playerPos.z + dz);
+        c.mesh.rotation.y = 0;
+        c.active = true;
+        c.mesh.visible = true;
+      });
+      cops.forEach((c, i) => {
+        const a = (i / 6) * Math.PI * 2;
+        c.mesh.position.set(playerPos.x + Math.cos(a) * 12, 0, playerPos.z + Math.sin(a) * 12);
+        c.mesh.rotation.y = a;
+        c.active = true;
+        c.mesh.visible = true;
+      });
+      if (kind === 'chase' || kind === 'drive') {
+        heli.visible = true;
+        heli.position.set(playerPos.x + 14, 42, playerPos.z - 18);
       }
-      m.position.y = Math.abs(Math.sin(t * 6 + cop.phase)) * 0.05;
-    }
-  }
-
-  // Place pursuit cars at the flanks for a staged shot (never occluding the player).
-  stageFlank(playerPos, heading) {
-    const fx = Math.sin(heading);
-    const fz = Math.cos(heading);
-    const rx = Math.cos(heading);
-    const rz = -Math.sin(heading);
-    const spots = [
-      [-11, 6], [11, 6], [0, -14],
-    ];
-    this.cars.forEach((c, i) => {
-      const [side, fwd] = spots[i];
-      c.mesh.position.set(
-        playerPos.x + rx * side + fx * fwd,
-        0,
-        playerPos.z + rz * side + fz * fwd
-      );
-      c.mesh.rotation.y = heading;
-    });
-    this.heli.visible = true;
-    this.beam.visible = true;
-    this.heli.position.set(playerPos.x + 6, 46, playerPos.z + 18);
-  }
-
-  // Park the foot cops around a spot for a staged shot.
-  stageCops(cx, cz, offsets) {
-    this.cops.forEach((cop, i) => {
-      const [ox, oz] = offsets[i % offsets.length];
-      cop.mesh.position.set(cx + ox, 0, cz + oz);
-      cop.mesh.rotation.y = Math.atan2(cx - cop.mesh.position.x, cz - cop.mesh.position.z);
-    });
-  }
+    },
+    update(dt, playerPos, player, frozen) {
+      if (frozen) {
+        rotor.rotation.y += 0.02;
+        return;
+      }
+      heat = Math.max(0, heat - dt * 1.5);
+      if (heat < wanted * 20 - 19 && wanted > 0) {
+        // Heat cools slowly; wanted only drops when the player hides.
+      }
+      rotor.rotation.y += dt * 14;
+      const t = Date.now() / 1000;
+      pursuit.forEach((c, i) => {
+        c.bar.material.color.setHex(Math.floor(t * 4 + i) % 2 ? 0xff2222 : 0x2244ff);
+        if (!c.active) return;
+        const m = c.mesh.position;
+        const dx = playerPos.x - m.x;
+        const dz = playerPos.z - m.z;
+        const dist = Math.hypot(dx, dz) || 1;
+        const targetHeading = Math.atan2(dx, dz);
+        let dh = targetHeading - c.mesh.rotation.y;
+        while (dh > Math.PI) dh -= Math.PI * 2;
+        while (dh < -Math.PI) dh += Math.PI * 2;
+        c.mesh.rotation.y += Math.max(-1.6 * dt, Math.min(1.6 * dt, dh));
+        const spd = Math.min(46, 26 + wanted * 4);
+        m.x += Math.sin(c.mesh.rotation.y) * spd * dt;
+        m.z += Math.cos(c.mesh.rotation.y) * spd * dt;
+        if (dist < 3.2 && player) player.damage(12 * dt);
+      });
+      cops.forEach((c, i) => {
+        if (!c.active) return;
+        const m = c.mesh.position;
+        const dx = playerPos.x - m.x;
+        const dz = playerPos.z - m.z;
+        const dist = Math.hypot(dx, dz) || 1;
+        m.x += (dx / dist) * 5.2 * dt;
+        m.z += (dz / dist) * 5.2 * dt;
+        c.mesh.rotation.y = Math.atan2(dx, dz);
+        if (dist < 1.6 && player) player.damage(10 * dt);
+      });
+      if (heli.visible) {
+        heliAngle += dt * 0.35;
+        heli.position.set(
+          playerPos.x + Math.cos(heliAngle) * 18,
+          42,
+          playerPos.z + Math.sin(heliAngle) * 18,
+        );
+        heli.lookAt(playerPos.x, 0, playerPos.z);
+      }
+    },
+  };
 }

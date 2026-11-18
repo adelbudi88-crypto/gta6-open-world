@@ -1,79 +1,78 @@
-// Story campaign for Porto Azul II — 5 chapters with Benny, Tono and Mara.
+// Story campaign: five chapters with Benny, Tono and Mara. Each chapter
+// has a banner, a timer, a payout and a destination; finishing one pays
+// out cash and advances the story.
 export const MISSIONS = [
-  {
-    chapter: 'CHAPTER 1/5', title: 'First Wheels', giver: 'BENNY',
-    desc: 'Steal the Comet GT from Torre Plaza and bring it to Benny\'s Garage.',
-    payout: 2500, duration: 300, target: { x: -30, z: -46 }, targetName: "BENNY'S GARAGE",
-  },
-  {
-    chapter: 'CHAPTER 2/5', title: "Tono's Debt", giver: 'TONO',
-    desc: 'Tono owes the Plaza crew $18,450. Outrun the collectors and reach the garage.',
-    payout: 6000, duration: 240, target: { x: -30, z: -46 }, targetName: "BENNY'S GARAGE",
-  },
-  {
-    chapter: 'CHAPTER 3/5', title: 'Heat Wave', giver: 'MARA',
-    desc: 'MOST WANTED. Lose the helicopter and the pursuit cars across Torre Plaza.',
-    payout: 9000, duration: 180, target: { x: 0, z: -80 }, targetName: 'TORRE PLAZA',
-  },
-  {
-    chapter: 'CHAPTER 4/5', title: 'The Vault Job', giver: 'BENNY',
-    desc: 'Case the Casino Royale vault on the Mirage Strip. Cops are already watching.',
-    payout: 15000, duration: 300, target: { x: 60, z: 54 }, targetName: 'CASINO ROYALE VAULT',
-  },
-  {
-    chapter: 'CHAPTER 5/5', title: 'Casino Vault Run', giver: 'MARA',
-    desc: 'Hit the vault, grab $48,500 and escape the Mirage Strip lockdown.',
-    payout: 25000, duration: 240, target: { x: 60, z: 54 }, targetName: 'CASINO ROYALE VAULT',
-  },
+  { chapter: 1, title: "Benny's First Run", district: 'TORRE PLAZA', payout: 2500, duration: 300, objective: 'Deliver the package to Torre Plaza', dest: [0, 0] },
+  { chapter: 2, title: "Tono's Debt", district: 'TORRE PLAZA', payout: 6500, duration: 240, objective: 'Chase down Tono and collect the debt', dest: [20, -30] },
+  { chapter: 3, title: 'Heat Wave', district: 'TORRE PLAZA', payout: 9000, duration: 300, objective: 'Lose a 5-star wanted level — survive the heat', dest: [60, 60] },
+  { chapter: 4, title: 'The Vault Job', district: 'THE MIRAGE STRIP', payout: 18000, duration: 360, objective: 'Reach the gold vault on the Mirage Strip', dest: [0, -118] },
+  { chapter: 5, title: 'Casino Vault Run', district: 'THE MIRAGE STRIP', payout: 25000, duration: 300, objective: 'Hit the Casino Royale vault and escape', dest: [0, -118] },
 ];
 
-export class MissionManager {
-  constructor() {
-    this.index = 0;
-    this.timer = MISSIONS[0].duration;
-    this.bannerUntil = 0;
-    this.completed = 0;
+export function createMissions() {
+  let index = 0;
+  let active = false;
+  let timeLeft = 0;
+  let banner = '';
+  let bannerSub = '';
+  let bannerUntil = 0;
+
+  function showBanner(text, sub, seconds) {
+    banner = text;
+    bannerSub = sub;
+    bannerUntil = Date.now() / 1000 + seconds;
   }
 
-  get current() {
-    return MISSIONS[Math.min(this.index, MISSIONS.length - 1)];
-  }
-
-  get finished() {
-    return this.index >= MISSIONS.length;
-  }
-
-  startBanner(now) {
-    this.bannerUntil = now + 4;
-  }
-
-  update(dt, now, state) {
-    if (this.finished) return;
-    this.timer -= dt;
-    if (this.timer <= 0) {
-      // Timer ran out: mission failed, retry it with a fresh timer.
-      this.timer = this.current.duration;
-      state.cash = Math.max(0, state.cash - 500);
-    }
-  }
-
-  complete(state, now) {
-    if (this.finished) return 0;
-    const payout = this.current.payout;
-    state.cash += payout;
-    state.respect = Math.min(5, state.respect + 1);
-    this.completed += 1;
-    this.index += 1;
-    if (!this.finished) {
-      this.timer = this.current.duration;
-      this.startBanner(now);
-    }
-    return payout;
-  }
-
-  // Seconds -> "M:SS".
-  static fmt(seconds) {
-    const s = Math.max(0, Math.ceil(seconds));
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  }
+  return {
+    get missions() { return MISSIONS; },
+    get index() { return index; },
+    get current() { return MISSIONS[Math.min(index, MISSIONS.length - 1)]; },
+    get active() { return active; },
+    get timeLeft() { return timeLeft; },
+    get banner() { return banner; },
+    get bannerSub() { return bannerSub; },
+    get bannerVisible() { return Date.now() / 1000 < bannerUntil; },
+    start(i) {
+      index = Math.max(0, Math.min(MISSIONS.length - 1, i));
+      active = true;
+      timeLeft = MISSIONS[index].duration;
+      const m = MISSIONS[index];
+      showBanner(`CHAPTER ${m.chapter}/5: ${m.title.toUpperCase()}`, m.objective.toUpperCase(), 6);
+      return m;
+    },
+    startNext() { return this.start(index); },
+    setChapter(i, secondsLeft) {
+      index = Math.max(0, Math.min(MISSIONS.length - 1, i));
+      active = true;
+      timeLeft = secondsLeft ?? MISSIONS[index].duration;
+      const m = MISSIONS[index];
+      showBanner(`CHAPTER ${m.chapter}/5: ${m.title.toUpperCase()}`, m.objective.toUpperCase(), 6);
+    },
+    tick(dt) {
+      if (!active) return 'idle';
+      timeLeft -= dt;
+      if (timeLeft <= 0) {
+        timeLeft = 0;
+        active = false;
+        showBanner('MISSION FAILED', 'THE CLOCK RAN OUT — TRY AGAIN', 5);
+        return 'failed';
+      }
+      return 'running';
+    },
+    complete(player) {
+      if (!active) return 0;
+      active = false;
+      const m = MISSIONS[index];
+      player.addCash(m.payout);
+      showBanner('MISSION COMPLETE', `+$${m.payout.toLocaleString('en-US')} — ${m.title.toUpperCase()}`, 6);
+      index = Math.min(index + 1, MISSIONS.length - 1);
+      return m.payout;
+    },
+    fail(reason) {
+      active = false;
+      showBanner('MISSION FAILED', reason, 5);
+    },
+    showBanner,
+    dest() { return MISSIONS[Math.min(index, MISSIONS.length - 1)].dest; },
+  };
 }

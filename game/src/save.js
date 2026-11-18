@@ -1,27 +1,36 @@
-// Save system for Porto Azul II — cash, respect, mission progress in localStorage.
-const KEY = 'porto-azul-2-save-v1';
+// Save system: progress, cash and garage upgrades persist in localStorage.
+// Every call is guarded so a missing/blocked storage never breaks the game.
+const KEY = 'porto-azul-ii-save-v1';
 
 export function loadSave() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data || typeof data !== 'object') return null;
     return data;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
 
-export function writeSave(data) {
+export function saveGame(state) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(data));
+    const data = {
+      cash: state.cash,
+      respect: state.respect,
+      chapter: state.chapter,
+      upgrades: state.upgrades,
+      day: state.day,
+      savedAt: Date.now(),
+    };
+    window.localStorage.setItem(KEY, JSON.stringify(data));
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }
 
 export function clearSave() {
-  try { localStorage.removeItem(KEY); } catch (e) { /* storage unavailable */ }
+  try { window.localStorage.removeItem(KEY); } catch { /* ignore */ }
 }

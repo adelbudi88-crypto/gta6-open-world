@@ -3,120 +3,110 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PORTO AZUL II — 5 story missions, police chases, heists, radio and saves</title>
+<link rel="icon" href="data:,">
+<title>Porto Azul II — Open World Crime</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #0d0817; font-family: Arial, Helvetica, sans-serif; }
-  #game-canvas, #game-canvas canvas { width: 100%; height: 100%; display: block; }
-  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,.85); z-index: 5; }
-  .panel { position: absolute; background: rgba(10, 6, 22, 0.62); border: 1px solid rgba(255,255,255,.14); border-radius: 8px; padding: 8px 12px; backdrop-filter: blur(2px); }
-  #hud-tl { top: 12px; left: 12px; }
-  #hud-district { font-size: 22px; font-weight: 900; letter-spacing: 2px; color: #ffd23e; }
-  #hud-flavor { font-size: 11px; letter-spacing: 1px; color: #cfc8e8; margin-top: 2px; }
-  #hud-mission-line { font-size: 12px; color: #9be8ff; margin-top: 6px; font-weight: 700; }
-  #hud-objective { font-size: 11px; color: #e8e2ff; margin-top: 2px; max-width: 320px; line-height: 1.35; }
-  #hud-tc { top: 12px; left: 50%; transform: translateX(-50%); text-align: center; min-width: 300px; }
-  #hud-timer { font-size: 26px; font-weight: 900; color: #fff; }
-  #hud-clock { font-size: 12px; color: #ffd23e; letter-spacing: 1px; }
-  #hud-tr { top: 12px; right: 12px; text-align: right; min-width: 210px; }
-  #hud-cash { font-size: 26px; font-weight: 900; color: #39ff88; }
-  #hud-wanted { font-size: 20px; letter-spacing: 3px; color: #ff4050; }
-  #hud-wanted-label { font-size: 11px; font-weight: 900; letter-spacing: 2px; color: #ff8090; }
-  .bar-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; justify-content: flex-end; }
-  .bar-label { font-size: 11px; font-weight: 700; width: 74px; text-align: right; }
-  .bar { width: 110px; height: 9px; background: rgba(255,255,255,.18); border-radius: 5px; overflow: hidden; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0614; font-family: Arial, Helvetica, sans-serif; color: #fff; }
+  #game { position: fixed; inset: 0; }
+  #game canvas { display: block; }
+  .hud { position: fixed; z-index: 10; pointer-events: none; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
+  .panel { background: rgba(8, 8, 18, 0.62); border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; padding: 8px 12px; }
+  #hud-topleft { top: 14px; left: 14px; }
+  #hud-district { font-size: 26px; font-weight: 900; letter-spacing: 1px; color: #ffd25e; }
+  #hud-flavor { font-size: 12px; letter-spacing: 2px; color: #cfe8ff; margin-top: 2px; }
+  #hud-topcenter { top: 14px; left: 50%; transform: translateX(-50%); text-align: center; }
+  #hud-mission { font-size: 16px; font-weight: 800; letter-spacing: 1px; }
+  #hud-timer { font-size: 30px; font-weight: 900; color: #ffd25e; }
+  #hud-banner { top: 96px; left: 50%; transform: translateX(-50%); text-align: center; transition: opacity 0.4s; }
+  #hud-banner-title { font-size: 34px; font-weight: 900; letter-spacing: 2px; color: #ffd25e; }
+  #hud-banner-sub { font-size: 14px; letter-spacing: 2px; color: #fff; margin-top: 4px; }
+  #hud-topright { top: 14px; right: 14px; text-align: right; font-size: 15px; font-weight: 700; line-height: 1.55; }
+  #hud-clock { font-size: 15px; color: #cfe8ff; }
+  #hud-cash { font-size: 26px; font-weight: 900; color: #7dff5e; }
+  #hud-wanted { font-size: 20px; font-weight: 900; letter-spacing: 2px; }
+  .bar { width: 170px; height: 10px; background: rgba(255,255,255,0.18); border-radius: 5px; margin: 3px 0 3px auto; overflow: hidden; }
   .bar > div { height: 100%; }
-  #hud-hp-bar { background: #39ff88; width: 100%; }
-  #hud-ar-bar { background: #4aa8ff; width: 50%; }
-  #hud-respect, #hud-weapon { font-size: 12px; margin-top: 4px; color: #e8e2ff; }
-  #hud-bl { bottom: 12px; left: 12px; padding: 6px; }
-  #hud-minimap { display: block; width: 180px; height: 180px; border-radius: 4px; }
-  #hud-br { bottom: 12px; right: 12px; text-align: right; }
-  #hud-speed { font-size: 44px; font-weight: 900; line-height: 1; }
-  #hud-speed-unit { font-size: 13px; color: #cfc8e8; }
-  #hud-gear { font-size: 15px; font-weight: 900; color: #ffd23e; }
-  #hud-car { font-size: 13px; font-weight: 700; color: #9be8ff; margin-top: 2px; }
-  #hud-bc { bottom: 12px; left: 50%; transform: translateX(-50%); }
-  #hud-radio { font-size: 14px; font-weight: 900; letter-spacing: 1px; }
-  #hud-radio-hint { font-size: 10px; color: #cfc8e8; margin-top: 2px; }
-  #hud-chapter {
-    position: absolute; top: 22%; left: 50%; transform: translateX(-50%);
-    font-size: 30px; font-weight: 900; letter-spacing: 2px; text-align: center;
-    color: #fff; background: rgba(10,6,22,.55); padding: 12px 28px; border-radius: 10px;
-    border: 1px solid rgba(255,210,62,.6); opacity: 0; transition: opacity .4s; white-space: nowrap;
-  }
-  #hud-toast {
-    position: absolute; top: 34%; left: 50%; transform: translateX(-50%);
-    font-size: 18px; font-weight: 900; letter-spacing: 1px; color: #39ff88;
-    opacity: 0; transition: opacity .4s; text-align: center;
-  }
-  #hud-flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
-  #hud-help { position: absolute; bottom: 200px; left: 12px; font-size: 11px; color: #bdb4d8; line-height: 1.5; }
-  #title-screen {
-    position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 14px;
-    background: linear-gradient(180deg, rgba(51,23,63,.88), rgba(10,6,22,.94)); color: #fff; text-align: center;
-  }
-  #title-screen h1 { font-size: 56px; font-weight: 900; letter-spacing: 4px; color: #ffd23e; text-shadow: 0 0 24px rgba(255,46,136,.7); }
-  #title-screen h2 { font-size: 16px; letter-spacing: 2px; color: #9be8ff; font-weight: 700; }
-  #title-screen p { font-size: 14px; color: #e8e2ff; max-width: 560px; line-height: 1.6; }
-  #start-btn {
-    pointer-events: auto; cursor: pointer; margin-top: 8px; font-size: 20px; font-weight: 900;
-    letter-spacing: 2px; color: #0d0817; background: #ffd23e; border: none; border-radius: 10px; padding: 14px 42px;
-  }
-  #start-btn:hover { background: #ffe27a; }
-  .keys { font-size: 12px; color: #cfc8e8; line-height: 1.7; }
+  #hud-health { background: #2eff5e; }
+  #hud-armour { background: #2ec8ff; }
+  .bar-label { font-size: 11px; letter-spacing: 2px; color: #cfe8ff; }
+  #hud-bottomleft { bottom: 14px; left: 14px; }
+  #hud-minimap { display: block; border: 2px solid rgba(255,255,255,0.35); border-radius: 8px; }
+  #hud-bottomright { bottom: 14px; right: 14px; text-align: right; }
+  #hud-speed { font-size: 52px; font-weight: 900; line-height: 0.9; }
+  #hud-speed-unit { font-size: 14px; color: #cfe8ff; }
+  #hud-gear { font-size: 18px; font-weight: 800; color: #ffd25e; }
+  #hud-car { font-size: 15px; font-weight: 800; letter-spacing: 1px; }
+  #hud-bottomcenter { bottom: 14px; left: 50%; transform: translateX(-50%); text-align: center; }
+  #hud-radio { font-size: 15px; font-weight: 800; letter-spacing: 1px; color: #ff9ad8; }
+  #hud-weapon { font-size: 14px; font-weight: 800; margin-top: 2px; }
+  #hud-garage { bottom: 170px; left: 50%; transform: translateX(-50%); font-size: 16px; font-weight: 800; color: #7dff5e; display: none; }
+  #title { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(180deg, rgba(20,6,40,0.82), rgba(10,4,20,0.88)); text-align: center; pointer-events: auto; }
+  #title h1 { font-size: 64px; font-weight: 900; letter-spacing: 4px; color: #ffd25e; text-shadow: 0 0 30px rgba(255,46,136,0.8); }
+  #title h2 { font-size: 20px; letter-spacing: 3px; color: #ff9ad8; margin-top: 8px; }
+  #title p { font-size: 16px; color: #cfe8ff; margin-top: 18px; line-height: 1.7; }
+  #start-btn { margin-top: 28px; font-size: 22px; font-weight: 900; letter-spacing: 2px; padding: 14px 42px; border: none; border-radius: 10px; background: #ff2e88; color: #fff; cursor: pointer; box-shadow: 0 0 24px rgba(255,46,136,0.7); }
+  #start-btn:hover { background: #ff4d9d; }
 </style>
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.min.js" } }
 </script>
 </head>
 <body>
-<div id="game-canvas"></div>
-<div id="hud">
-  <div class="panel" id="hud-tl">
-    <div id="hud-district">TORRE PLAZA</div>
-    <div id="hud-flavor">NEON, NOISE AND NO WAY OUT</div>
-    <div id="hud-mission-line">CHAPTER 1/5 — FIRST WHEELS · BENNY</div>
-    <div id="hud-objective">Steal the Comet GT from Torre Plaza and bring it to Benny's Garage.</div>
-  </div>
-  <div class="panel" id="hud-tc">
-    <div id="hud-timer">5:00</div>
-    <div id="hud-clock">DAY 1 · 19:02</div>
-  </div>
-  <div class="panel" id="hud-tr">
-    <div id="hud-cash">$0</div>
-    <div id="hud-wanted">☆☆☆☆☆</div>
-    <div id="hud-wanted-label">HEAT 0</div>
-    <div class="bar-row"><span class="bar-label" id="hud-health">HP 100</span><span class="bar"><span id="hud-hp-bar" style="display:block"></span></span></div>
-    <div class="bar-row"><span class="bar-label" id="hud-armour">ARMOUR 50</span><span class="bar"><span id="hud-ar-bar" style="display:block"></span></span></div>
-    <div id="hud-respect">RESPECT LV 1</div>
-    <div id="hud-weapon">HORNET SMG 30/120</div>
-  </div>
-  <div class="panel" id="hud-bl"><canvas id="hud-minimap" width="180" height="180"></canvas></div>
-  <div class="panel" id="hud-br">
-    <div><span id="hud-speed">0</span> <span id="hud-speed-unit">km/h</span></div>
-    <div id="hud-gear">FOOT</div>
-    <div id="hud-car">ON FOOT — DAZ</div>
-  </div>
-  <div class="panel" id="hud-bc">
-    <div id="hud-radio">♪ SOL FM 95.4 SYNTHWAVE</div>
-    <div id="hud-radio-hint">C — CHANGE STATION · M — MUTE</div>
-  </div>
-  <div id="hud-chapter">CHAPTER 1/5: FIRST WHEELS — BENNY</div>
-  <div id="hud-toast"></div>
-  <div id="hud-help">WASD DRIVE / WALK · SHIFT RUN<br>E ENTER / EXIT CAR · SPACE SHOOT<br>ENTER START</div>
+<div id="game"></div>
+
+<div class="hud panel" id="hud-topleft">
+  <div id="hud-district">TORRE PLAZA</div>
+  <div id="hud-flavor">GLASS, GOLD AND BAD DECISIONS</div>
 </div>
-<div id="hud-flash"></div>
-<div id="title-screen">
+
+<div class="hud panel" id="hud-topcenter">
+  <div id="hud-mission">MISSION 1/5</div>
+  <div id="hud-timer"></div>
+</div>
+
+<div class="hud" id="hud-banner">
+  <div id="hud-banner-title"></div>
+  <div id="hud-banner-sub"></div>
+</div>
+
+<div class="hud panel" id="hud-topright">
+  <div id="hud-clock">DAY 1 · 19:07</div>
+  <div id="hud-cash">$0</div>
+  <div id="hud-wanted">☆☆☆☆☆ WANTED 0/5</div>
+  <div class="bar-label">HEALTH</div>
+  <div class="bar"><div id="hud-health" style="width:100%"></div></div>
+  <div class="bar-label">ARMOUR</div>
+  <div class="bar"><div id="hud-armour" style="width:50%"></div></div>
+  <div id="hud-respect">RESPECT LV 1</div>
+</div>
+
+<div class="hud" id="hud-bottomleft">
+  <canvas id="hud-minimap" width="180" height="180"></canvas>
+</div>
+
+<div class="hud panel" id="hud-bottomright">
+  <div><span id="hud-speed">0</span> <span id="hud-speed-unit">KM/H</span></div>
+  <div id="hud-gear">GEAR 1</div>
+  <div id="hud-car">DAZ — ON FOOT</div>
+</div>
+
+<div class="hud panel" id="hud-bottomcenter">
+  <div id="hud-radio">SOL FM 95.4 · SYNTHWAVE</div>
+  <div id="hud-weapon">HORNET SMG 30/120</div>
+</div>
+
+<div class="hud panel" id="hud-garage">BENNY'S GARAGE — PRESS G TO BUY ENGINE UPGRADE ($5,000)</div>
+
+<div id="title">
   <h1>PORTO AZUL II</h1>
   <h2>5 STORY MISSIONS · POLICE CHASES · HEISTS · RADIO · SAVES</h2>
-  <p>Daz is back in Porto Azul. Benny, Tono and Mara have five jobs for you — steal the Comet GT,
-  settle Tono's debt, outrun the helicopter at MOST WANTED, case the Casino Royale vault and run it.
-  Dusk, neon, traffic, 40 pedestrians and the whole city watching.</p>
-  <button id="start-btn">START ENGINE</button>
-  <div class="keys">WASD — drive / walk &nbsp;·&nbsp; SHIFT — run &nbsp;·&nbsp; E — enter / exit car &nbsp;·&nbsp; SPACE — shoot &nbsp;·&nbsp; C — radio</div>
+  <p>You are Daz. Benny needs a driver, Tono owes money, and the Casino Royale<br>vault is full of gold. Drive fast, stay wanted, get paid.<br><br>
+  W A S D drive / walk · SHIFT boost · E enter / exit car · SPACE shoot<br>
+  C radio · G garage · M next mission · R respawn</p>
+  <button id="start-btn">▶ START ENGINE</button>
 </div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
