@@ -1,6 +1,7 @@
-# Porto Azul II — build ignores
 node_modules/
 dist/
 *.local
 .DS_Store
 tools/node_modules
+tools/package.json
+tools/package-lock.json

@@ -1,30 +1,30 @@
-# Porto Azul II — 5 story missions, police chases, heists, radio and saves
-
+# PORTO AZUL II — 8 story missions, police chases, heists, radio and saves
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-**Porto Azul II** is a three.js open-world crime game set in a dusk-lit neon city. Play as Daz across five story chapters with Benny, Tono and Mara — deliveries, escapes, a heat wave, a vault job and a casino vault run — with chapter banners, mission timers and payouts up to $25,000.
+An open-world crime game set in **Porto Azul**, a dusk-soaked neon city on the coast. You are **Daz**, a driver with nothing but a fast car and faster friends. Benny, Tono and Mara have eight jobs for you — from a quiet plaza pickup to the last casino vault heist on the Mirage Strip.
 
-## Features
+## What is in the game
 
-- **5-chapter story campaign** — delivery, debt collection, police heat, vault heist and casino run, each with a timer, payout and chapter banner.
-- **Wanted system 0–5 stars** — pursuit cars, foot cops and a searchlight helicopter; hit MOST WANTED and the whole city comes for you.
-- **Economy + Benny's Garage** — earn cash from missions, buy engine, armour and handling upgrades at the garage.
-- **Full HUD** — district name and flavour text, mission banner and timer, day and clock, cash, wanted stars, health and armour bars, weapon and ammo, radio station, minimap with route, speedometer with gear and car name.
-- **Living city** — five districts (Torre Plaza, Mirage Strip, Palmline Beach, Old Town, Harbor East), 22 traffic cars, 40 pedestrians, lit-window towers, neon signs, palms and a sunset sky.
-- **Radio** — four procedural WebAudio stations, switch with C; engine hum and police sirens.
-- **Saves** — progress, cash and upgrades persist in localStorage.
-- **Steal cars, shoot, get busted, respawn** — the full loop, playable from the title screen.
+- **8 story missions** with chapter banners, timers and payouts: Welcome to Porto Azul ($9,500), Tono's Debt ($14,000), Heat Wave ($19,000), The Vault Job ($26,000), Casino Vault Run ($28,500), Harbor Lights ($32,000), Air One Down ($41,000) and the finale The Last Score ($60,000).
+- **Wanted system, 0–5 stars**: foot cops, pursuit cars, police roadblocks at 3+ stars, PIT maneuvers that spin your car, and Air One — one helicopter at 3 stars, a second at 5, both sweeping a visible searchlight cone over the streets.
+- **Weapon wheel** (hold Q, or press 1/2/3): Pistol (infinite), HORNET SMG (24/120), Riot Shotgun (18/24), with HUD ammo.
+- **Carjacking**: press E near any parked or traffic car to steal it. The driver flees on foot — and if a cop or pedestrian sees it, the heat goes up a star.
+- **A living city**: 32 traffic cars, 60 pedestrians, four districts (Torre Plaza, The Mirage Strip, Palmline Beach, Harbor East), neon casino signs, palms, streetlights, a harbor dock with a boat and smuggle crates, and burning wrecks after high-speed crashes.
+- **Economy + garage**: mission payouts, cash, respect levels, and Benny's Garage upgrades (engine, armour, tires).
+- **Full HUD**: district + flavor text, mission + timer, day + clock, cash, wanted stars, health + armour bars, respect level, minimap with a route to the target, speedometer + gear + car name, radio station, weapon + ammo.
+- **Radio**: four WebAudio synth stations (SOL FM 95.4 Synthwave, Azul 101.1, Neon 88.7, Harbour Talk 720) — press C to switch.
+- **Saves**: progress, cash, respect, missions and upgrades persist in localStorage.
 
-## Play
+## Controls
 
-Serve it locally with `node serve.ts`, then open http://localhost:8080.
+WASD / arrows — drive & move · Shift — run · E — enter / steal / exit car · Q (hold) — weapon wheel · 1/2/3 — weapons · Click / F — fire · C — radio · G — garage (near Benny's) · M — start mission
 
-- **W A S D** — drive / walk, **Shift** — boost
-- **E** — enter / exit car, **Space** — shoot, **C** — change radio
-- **G** — Benny's Garage (near the garage), **M** — start next mission, **R** — respawn
+## Play it
 
-## Tech
+Serve the game locally with `node serve.ts`, then open http://localhost:8080. No build step, no network requests — the game runs fully offline (three.js is vendored under `game/vendor/`).
 
-Three.js (vendored under `game/vendor/three.module.min.js`), plain ES modules, no network requests, no build step. Screenshots are staged mid-action with `node tools/shots.mjs`.
+## Screenshots
+
+The dossier screenshots are staged mid-action with `node tools/shots.mjs`, which serves the game headlessly, captures all four shots at dusk and verifies them (0 console errors, each ≤ 256 KiB).

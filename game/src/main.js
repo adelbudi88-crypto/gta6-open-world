@@ -1,282 +1,230 @@
-// Porto Azul II — bootstrap, game loop, input, camera, title screen,
-// busted/respawn, garage, mission flow and shot mode.
+// PORTO AZUL II v2.8 — entry point. Wires the city, vehicles, pedestrians,
+// police, player, missions, HUD, radio and saves into one game loop.
+// Shot mode (?shot=1..4) stages a frozen dossier frame instead of playing.
 import * as THREE from 'three';
-import { buildCity, districtAt } from './city.js';
+import { makeRng, WORLD_SEED } from './rng.js';
+import { buildCity } from './city.js';
 import { createVehicles } from './vehicles.js';
 import { createPeds } from './peds.js';
-import { createPlayer } from './player.js';
 import { createPolice } from './police.js';
+import { createPlayer } from './player.js';
 import { createMissions } from './missions.js';
 import { createHud } from './hud.js';
 import { createAudio } from './audio.js';
 import { loadSave, saveGame } from './save.js';
 import { applyShot } from './shots.js';
 
-const params = new URLSearchParams(window.location.search);
-const shotName = params.get('shot');
-const seed = Number(params.get('seed') || '1');
+const params = new URLSearchParams(location.search);
+const shotNum = parseInt(params.get('shot') || '0', 10) || 0;
 
+const state = {
+  day: 1, minutes: 19 * 60 + 7, cash: 0, wanted: 0, respect: 1,
+  missionIndex: 0, missionsDone: [], upgrades: { engine: 0, armour: 0, tires: 0 },
+  bestWanted: 0, playerCar: 'comet',
+};
+
+const saved = !shotNum ? loadSave() : null;
+if (saved) {
+  state.cash = saved.cash;
+  state.respect = saved.respect;
+  state.missionIndex = saved.missionIndex;
+  state.missionsDone = saved.missionsDone || [];
+  state.upgrades = { engine: 0, armour: 0, tires: 0, ...saved.upgrades };
+  state.bestWanted = saved.bestWanted || 0;
+  state.playerCar = saved.car || 'comet';
+  state.day = saved.day || 1;
+}
+
+const rng = makeRng(WORLD_SEED);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
 document.getElementById('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.1, 900);
-camera.position.set(0, 8, 30);
-
-const city = buildCity(scene);
-const vehicles = createVehicles(scene);
-const peds = createPeds(scene);
-const player = createPlayer(scene);
-const police = createPolice(scene);
-const missions = createMissions();
-const hud = createHud();
-const audio = createAudio();
+const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 600);
 
 const world = {
-  scene, camera, renderer, city, vehicles, peds, player, police, missions, hud, audio,
-  frozen: false,
-  day: 1,
-  clockMinutes: 19 * 60 + 7,
-  started: false,
-  updateCamera,
-  hudState,
+  state, scene, camera, renderer, rng,
+  frozen: false, cameraPose: null, audio: createAudio(),
+  hud: null, player: null, missions: null, police: null,
+  vehicles: null, peds: null, city: null, main: null,
 };
 
-const saved = loadSave();
-if (saved) {
-  player.state.cash = saved.cash || 0;
-  player.state.respect = saved.respect || 1;
-  player.state.upgrades = saved.upgrades || { engine: 0, armour: 0, handling: 0 };
-  world.day = saved.day || 1;
-  if (typeof saved.chapter === 'number') missions.setChapter(saved.chapter, 300);
-  player.state.armour = 50 + player.state.upgrades.armour * 25;
-}
+world.city = buildCity(scene, rng);
+world.vehicles = createVehicles(scene, rng);
+world.peds = createPeds(scene, rng);
+world.police = createPolice(scene, rng);
+world.player = createPlayer(scene, rng, world);
+world.hud = createHud();
+world.missions = createMissions(world);
 
-// Starter ride: a Comet GT parked at Torre Plaza.
-const starterCar = player.spawnCar('Comet GT', 0x2a6ad8, 4, 14, Math.PI);
-let nearCar = starterCar;
-
-const input = { forward: false, back: false, left: false, right: false, boost: false };
-const keyMap = {
-  KeyW: 'forward', ArrowUp: 'forward',
-  KeyS: 'back', ArrowDown: 'back',
-  KeyA: 'left', ArrowLeft: 'left',
-  KeyD: 'right', ArrowRight: 'right',
-  ShiftLeft: 'boost', ShiftRight: 'boost',
+world.main = {
+  wasted() {
+    const p = world.player;
+    world.hud.showBanner('WASTED', 'The cops got Daz. The garage patched him up — for a price.');
+    state.cash = Math.floor(state.cash * 0.9);
+    p.health = 100; p.armour = 0;
+    world.police.setWanted(0, world);
+    p.pos.x = 20; p.pos.z = 16;
+    if (p.car) { p.car.mesh.position.set(20, 0, 16); p.car.angle = 0; p.car.speed = 0; p.car.mesh.rotation.y = 0; }
+    else { p.mesh.position.set(20, 0, 16); }
+    p.angle = 0;
+  },
+  buyUpgrade(kind) {
+    const base = { engine: 5000, armour: 4000, tires: 3000 }[kind] || 3000;
+    const level = state.upgrades[kind] || 0;
+    if (level >= 3) { world.hud.flash(kind.toUpperCase() + ' ALREADY MAXED'); return; }
+    const cost = base + level * 2000;
+    if (state.cash < cost) { world.hud.flash('NOT ENOUGH CASH — ' + kind.toUpperCase() + ' LV' + (level + 1) + ' COSTS $' + cost.toLocaleString('en-US')); return; }
+    state.cash -= cost;
+    state.upgrades[kind] = level + 1;
+    if (kind === 'armour') world.player.armour = Math.min(100, 25 * state.upgrades.armour);
+    if (kind === 'tires' && world.player.car) world.player.car.accel += 3;
+    world.hud.flash(kind.toUpperCase() + ' LV' + state.upgrades[kind] + ' INSTALLED — $' + cost.toLocaleString('en-US'));
+    world.hud.update(world);
+    saveGame(state);
+    world.hud.saved();
+  },
 };
-
-function hudState() {
-  const st = player.state;
-  const dist = world.districtOverride || districtAt(st.pos.x, st.pos.z);
-  const garageDist = Math.hypot(st.pos.x - city.garagePos.x, st.pos.z - city.garagePos.z);
-  return {
-    pos: st.pos,
-    heading: st.heading,
-    district: dist,
-    mission: missions.current,
-    missionActive: missions.active,
-    timeLeft: missions.timeLeft,
-    banner: missions.banner,
-    bannerSub: missions.bannerSub,
-    bannerVisible: missions.bannerVisible,
-    day: world.day,
-    clockMinutes: world.clockMinutes,
-    cash: st.cash,
-    wanted: police.wanted,
-    mostWanted: police.mostWanted,
-    health: st.health,
-    armour: st.armour,
-    respect: st.respect,
-    weapon: st.weapon,
-    speedKmh: st.speedKmh,
-    onFoot: st.onFoot,
-    carName: st.carName,
-    station: audio.station,
-    nearGarage: garageDist < 18,
-    traffic: vehicles.traffic,
-    policeCars: police.pursuit,
-    missionDest: missions.dest(),
-  };
-}
 
 function updateCamera() {
-  const st = player.state;
-  if (st.onFoot) {
-    const back = 7;
-    const hx = Math.sin(st.heading);
-    const hz = Math.cos(st.heading);
-    camera.position.set(st.pos.x - hx * back, 3.4, st.pos.z - hz * back);
-    camera.lookAt(st.pos.x + hx * 6, 1.6, st.pos.z + hz * 6);
-  } else if (st.car) {
-    const h = st.car.rotation.y;
-    const hx = Math.sin(h);
-    const hz = Math.cos(h);
-    const speedFactor = Math.min(1, st.speedKmh / 140);
-    const back = 10 + speedFactor * 3;
-    camera.position.set(st.pos.x - hx * back, 4.6 + speedFactor, st.pos.z - hz * back);
-    camera.lookAt(st.pos.x + hx * 10, 1.4, st.pos.z + hz * 10);
+  if (world.cameraPose) {
+    camera.position.set(world.cameraPose.pos[0], world.cameraPose.pos[1], world.cameraPose.pos[2]);
+    camera.lookAt(world.cameraPose.look[0], world.cameraPose.look[1], world.cameraPose.look[2]);
+    return;
   }
+  const p = world.player;
+  const back = p.onFoot ? 7 : 10.5;
+  const h = p.onFoot ? 3.2 : 4.4;
+  const fx = Math.cos(p.angle), fz = -Math.sin(p.angle);
+  camera.position.set(p.pos.x - fx * back, h, p.pos.z - fz * back);
+  camera.lookAt(p.pos.x + fx * 8, 1.4, p.pos.z + fz * 8);
 }
+world.updateCamera = updateCamera;
 
-function nearestCar(maxDist) {
-  const st = player.state;
-  const cars = [starterCar, vehicles.tono, ...vehicles.traffic.map((c) => c.mesh)];
-  let best = null;
-  let bestD = maxDist;
-  for (const car of cars) {
-    if (!car.visible) continue;
-    const d = Math.hypot(car.position.x - st.pos.x, car.position.z - st.pos.z);
-    if (d < bestD) { bestD = d; best = car; }
-  }
-  return best;
+// Input.
+const keys = {};
+const input = { forward: false, back: false, left: false, right: false, run: false };
+let wheelHeld = false;
+function syncInput() {
+  input.forward = !!(keys.KeyW || keys.ArrowUp);
+  input.back = !!(keys.KeyS || keys.ArrowDown);
+  input.left = !!(keys.KeyA || keys.ArrowLeft);
+  input.right = !!(keys.KeyD || keys.ArrowRight);
+  input.run = !!(keys.ShiftLeft || keys.ShiftRight);
 }
-
-function buyUpgrade(kind, cost) {
-  const st = player.state;
-  if (st.cash < cost) return;
-  if (st.upgrades[kind] >= 3) return;
-  st.cash -= cost;
-  st.upgrades[kind] += 1;
-  if (kind === 'armour') st.armour = 50 + st.upgrades.armour * 25;
-  audio.payout();
-  saveGame({ cash: st.cash, respect: st.respect, chapter: missions.index, upgrades: st.upgrades, day: world.day });
-}
-
 window.addEventListener('keydown', (e) => {
-  if (keyMap[e.code] !== undefined) input[keyMap[e.code]] = true;
-  if (e.code === 'Space') {
-    e.preventDefault();
-    if (world.started && player.shoot()) {
-      audio.shoot();
-      police.raise(1);
+  if (e.repeat) return;
+  keys[e.code] = true;
+  syncInput();
+  world.audio.ensure();
+  if (e.code === 'KeyE') world.player.tryEnterOrJack();
+  if (e.code === 'KeyQ') { wheelHeld = true; world.hud.showWheel(true, world.player.weapon); }
+  if (e.code === 'Digit1') world.player.selectWeapon('pistol');
+  if (e.code === 'Digit2') world.player.selectWeapon('smg');
+  if (e.code === 'Digit3') world.player.selectWeapon('shotgun');
+  if (e.code === 'KeyC') { world.audio.nextStation(); world.audio.start(); }
+  if (e.code === 'KeyM' && !world.missions.active) world.missions.start(world.missions.index);
+  if (e.code === 'KeyF') world.player.fire();
+  if (e.code === 'KeyG') {
+    const g = world.city.garagePos;
+    const near = Math.hypot(world.player.pos.x - g.x, world.player.pos.z - g.z) < 16;
+    if (near) {
+      const panel = document.getElementById('garage');
+      world.hud.showGarage(!(panel && panel.classList.contains('show')));
     }
   }
-  if (e.code === 'KeyE' && world.started) {
-    if (player.state.onFoot) {
-      const car = nearestCar(6);
-      if (car) {
-        player.enterCar(car, car.userData.carName || 'Street Car');
-        audio.start();
-      }
-    } else {
-      player.exitCar();
-    }
-  }
-  if (e.code === 'KeyC') {
-    audio.nextStation();
-  }
-  if (e.code === 'KeyM' && world.started && !missions.active) {
-    missions.startNext();
-  }
-  if (e.code === 'KeyG' && world.started) {
-    const st = player.state;
-    const d = Math.hypot(st.pos.x - city.garagePos.x, st.pos.z - city.garagePos.z);
-    if (d < 18) buyUpgrade('engine', 5000);
-  }
-  if (e.code === 'KeyR') {
-    player.state.pos.set(0, 0, 20);
-    player.state.mesh.position.set(0, 0, 20);
-    player.heal();
-    police.setWanted(0);
-    player.resetSpeed();
-  }
-  if (e.code === 'Enter' && !world.started) startGame();
 });
 window.addEventListener('keyup', (e) => {
-  if (keyMap[e.code] !== undefined) input[keyMap[e.code]] = false;
+  keys[e.code] = false;
+  syncInput();
+  if (e.code === 'KeyQ') { wheelHeld = false; world.hud.showWheel(false, world.player.weapon); }
 });
+renderer.domElement.addEventListener('mousedown', () => {
+  world.audio.ensure();
+  if (!world.player.onFoot) return;
+  world.player.fire();
+});
+document.querySelectorAll('#garage button[data-upgrade]').forEach((btn) => {
+  btn.addEventListener('click', () => world.main.buyUpgrade(btn.dataset.upgrade));
+});
+document.getElementById('garage-close').addEventListener('click', () => world.hud.showGarage(false));
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-document.getElementById('start-btn').addEventListener('click', startGame);
-
-function startGame() {
-  world.started = true;
-  document.getElementById('title').style.display = 'none';
-  audio.start();
-  if (!missions.active) missions.start(0);
+// Start screen / shot mode.
+const startScreen = document.getElementById('start-screen');
+if (shotNum) {
+  if (startScreen) startScreen.style.display = 'none';
+} else {
+  document.getElementById('start-btn').addEventListener('click', () => {
+    world.audio.ensure();
+    world.audio.start();
+    startScreen.style.display = 'none';
+    if (!world.missions.active) world.missions.start(state.missionIndex);
+    world.hud.update(world);
+  });
 }
 
-const clock = new THREE.Clock();
+// Starting position: Benny's Garage.
+world.player.pos.x = 20;
+world.player.pos.z = 30;
+world.player.angle = Math.PI / 2;
+world.player.mesh.position.set(20, 0, 30);
+if (!shotNum && saved) world.player.spawnCar(state.playerCar);
+
 let saveTimer = 0;
+let decayTimer = 0;
+const clock = new THREE.Clock();
 
 function loop() {
   requestAnimationFrame(loop);
   const dt = Math.min(clock.getDelta(), 0.05);
-  if (world.frozen) {
-    renderer.render(scene, camera);
-    return;
-  }
-  if (world.started) {
-    if (player.state.onFoot) player.walk(dt, input);
-    else player.drive(dt, input);
-    // Mission destination check.
-    if (missions.active) {
-      const dest = missions.dest();
-      const d = Math.hypot(player.state.pos.x - dest[0], player.state.pos.z - dest[1]);
-      if (d < 12) {
-        const payout = missions.complete(player);
-        if (payout > 0) {
-          audio.payout();
-          police.lower(2);
-          saveGame({ cash: player.state.cash, respect: player.state.respect, chapter: missions.index, upgrades: player.state.upgrades, day: world.day });
-        }
-      } else {
-        const status = missions.tick(dt);
-        if (status === 'failed') police.raise(1);
-      }
+  if (!world.frozen) {
+    state.minutes += dt * 0.05;
+    world.player.update(dt, input);
+    world.vehicles.update(dt, false);
+    world.peds.update(dt, false);
+    world.police.update(dt, world);
+    world.city.update(dt);
+    world.missions.update(dt);
+    // Mission complete when the player reaches the target.
+    if (world.missions.active && world.missions.atTarget()) world.missions.complete();
+    // Wanted decays when the heat dies down.
+    if (state.wanted > 0) {
+      const nearCop = world.police.cops.some((c) => c.active && Math.hypot(c.mesh.position.x - world.player.pos.x, c.mesh.position.z - world.player.pos.z) < 40);
+      if (!nearCop) {
+        decayTimer += dt;
+        if (decayTimer > 25) { decayTimer = 0; world.police.setWanted(state.wanted - 1, world); }
+      } else decayTimer = 0;
     }
-    // Speeding in the city draws heat.
-    if (!player.state.onFoot && player.state.speedKmh > 110) police.raise(0);
-    if (player.state.busted) {
-      missions.fail('BUSTED — THE COPS GOT YOU');
-      player.state.pos.set(0, 0, 20);
-      player.state.mesh.position.set(0, 0, 20);
-      player.heal();
-      police.setWanted(0);
-      player.resetSpeed();
-      if (player.state.car) {
-        player.state.car.visible = false;
-        player.state.car = null;
-      }
-      player.state.mesh.visible = true;
-      player.state.onFoot = true;
-    }
-    // Clock advances slowly through the evening.
-    world.clockMinutes += dt * 0.35;
-    if (world.clockMinutes >= 24 * 60) { world.clockMinutes -= 24 * 60; world.day += 1; }
-    audio.engine(player.state.speedKmh, !player.state.onFoot);
-    audio.siren(police.wanted >= 2);
+    if (world.player.health <= 0) world.main.wasted();
     saveTimer += dt;
-    if (saveTimer > 15) {
-      saveTimer = 0;
-      saveGame({ cash: player.state.cash, respect: player.state.respect, chapter: missions.index, upgrades: player.state.upgrades, day: world.day });
-    }
+    if (saveTimer > 20) { saveTimer = 0; saveGame(state); world.hud.saved(); }
+    world.audio.setEngineRpm(world.player.onFoot ? 0 : Math.min(1, (world.player.speedKmh || 0) / 160));
+    world.hud.update(world);
   }
-  vehicles.update(dt, world.frozen);
-  peds.update(dt, world.frozen);
-  police.update(dt, player.state.pos, player, world.frozen);
   updateCamera();
-  hud.update(hudState());
   renderer.render(scene, camera);
 }
+loop();
 
-// Shot mode: stage the exact pose, render once, signal readiness.
-if (shotName) {
-  world.started = true;
-  document.getElementById('title').style.display = 'none';
-  const ok = applyShot(world, shotName);
-  if (!ok) {
-    document.title = 'SHOT-FAILED';
-    window.__shotReady = true;
-  }
-} else {
-  updateCamera();
-  hud.update(hudState());
-  loop();
+if (shotNum) {
+  // One staged frame, then signal the capture tool.
+  requestAnimationFrame(() => {
+    try {
+      applyShot(world, shotNum);
+    } catch (err) {
+      window.__shotError = String(err && err.message || err);
+    }
+  });
 }
+window.__world = world;

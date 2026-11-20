@@ -1,80 +1,121 @@
-// Screenshot runner for Porto Azul II: serves game/ on a local port,
-// loads each shot from shots.json in headless Chromium, waits for the
-// staged pose to render, and saves the screenshot. Fails loudly on any
-// console/page error or any screenshot over 256 KiB.
-import { createRequire } from 'node:module';
+// Dossier screenshots for Porto Azul II v2.8.
+// Serves game/ on a local port, loads each ?shot=N in headless Chromium
+// (swiftshader WebGL), waits for the staged frame (window.__shotReady),
+// captures it as JPEG, and verifies: 0 console errors, 0 page errors,
+// all 4 screenshots present and <= 256 KiB each.
+//   node tools/shots.mjs
+// Prints ALL CHECKS PASSED and exits 0 on success, FAIL + details otherwise.
 import { createServer } from 'node:http';
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
-import { extname, join, resolve, normalize, sep } from 'node:path';
+import { readFile, stat, writeFile, mkdir } from 'node:fs/promises';
+import { extname, join, normalize, resolve, sep, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright-core';
 
-const { chromium } = await import('./node_modules/playwright/index.mjs');
-
-const here = fileURLToPath(new URL('.', import.meta.url));
-const root = resolve(join(here, '..'));
-const gameRoot = resolve(join(root, 'game'));
-const shotsPath = join(root, 'shots.json');
-const shots = JSON.parse(readFileSync(shotsPath, 'utf8'));
+const here = dirname(fileURLToPath(import.meta.url));
+const repo = resolve(here, '..');
+const gameRoot = join(repo, 'game');
+const shotsDir = join(repo, 'screenshots');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
 };
 
-const server = createServer((req, res) => {
-  const url = new URL(req.url ?? '/', 'http://localhost');
-  let pathname = url.pathname;
-  try { pathname = decodeURIComponent(pathname); } catch { res.writeHead(400).end('bad request'); return; }
-  if (pathname.endsWith('/')) pathname += 'index.html';
-  const file = resolve(join(gameRoot, normalize(pathname)));
-  if (file !== gameRoot && !file.startsWith(gameRoot + sep)) { res.writeHead(403).end('forbidden'); return; }
-  let data;
-  try { data = readFileSync(file); } catch { res.writeHead(404).end('not found'); return; }
-  res.writeHead(200, { 'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream', 'content-length': data.length, 'cache-control': 'no-store' });
-  res.end(data);
-});
+const SHOTS = [
+  { n: 1, file: '1-drive.jpg' },
+  { n: 2, file: '2-foot.jpg' },
+  { n: 3, file: '3-chase.jpg' },
+  { n: 4, file: '4-mission.jpg' },
+];
 
-await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
-const port = server.address().port;
-
-const errors = [];
-const browser = await chromium.launch({
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'],
-});
-const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-page.on('console', (msg) => {
-  if (msg.type() === 'error') errors.push(`console: ${msg.text()}`);
-});
-page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
-
-for (const shot of shots) {
-  const outPath = join(root, 'screenshots', shot.name);
-  await page.goto(`http://127.0.0.1:${port}/${shot.query}`, { waitUntil: 'load', timeout: 60000 });
-  try {
-    await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 30000 });
-  } catch {
-    errors.push(`shot ${shot.name}: __shotReady never became true`);
-    continue;
-  }
-  await page.waitForTimeout(600);
-  await page.screenshot({ path: outPath, type: 'jpeg', quality: 82 });
-  const size = statSync(outPath).size;
-  console.log(`${shot.name}: ${size} bytes`);
-  if (size > 262144) errors.push(`shot ${shot.name}: ${size} bytes exceeds 256 KiB`);
+function serve() {
+  return new Promise((resolveServer) => {
+    const server = createServer(async (req, res) => {
+      try {
+        const url = new URL(req.url ?? '/', 'http://localhost');
+        let pathname = decodeURIComponent(url.pathname);
+        if (pathname.endsWith('/')) pathname += 'index.html';
+        const file = resolve(join(gameRoot, normalize(pathname)));
+        if (file !== gameRoot && !file.startsWith(gameRoot + sep)) {
+          res.writeHead(403).end('forbidden');
+          return;
+        }
+        const data = await readFile(file);
+        res.writeHead(200, { 'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream', 'content-length': data.length, 'cache-control': 'no-store' });
+        res.end(data);
+      } catch {
+        res.writeHead(404).end('not found');
+      }
+    });
+    server.listen(0, '127.0.0.1', () => resolveServer(server));
+  });
 }
 
-await browser.close();
-server.close();
+const failures = [];
+function check(ok, label) {
+  console.log((ok ? 'PASS' : 'FAIL') + ' ' + label);
+  if (!ok) failures.push(label);
+}
 
-if (errors.length > 0) {
-  console.log('CHECKS FAILED:');
-  for (const e of errors) console.log(` - ${e}`);
+const server = await serve();
+const port = server.address().port;
+const exe = process.env.CHROME_PATH
+  || (process.env.HOME + '/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome');
+let browser = null;
+try {
+  browser = await chromium.launch({
+    executablePath: exe,
+    args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-dev-shm-usage'],
+  });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const consoleErrors = [];
+  const pageErrors = [];
+  page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+  page.on('pageerror', (err) => pageErrors.push(String(err)));
+  page.on('requestfailed', (req) => consoleErrors.push('requestfailed: ' + req.url()));
+
+  await mkdir(shotsDir, { recursive: true });
+
+  for (const shot of SHOTS) {
+    consoleErrors.length = 0;
+    pageErrors.length = 0;
+    await page.goto(`http://127.0.0.1:${port}/?shot=${shot.n}`, { waitUntil: 'load', timeout: 60000 });
+    let ready = false;
+    try {
+      await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 60000 });
+      ready = true;
+    } catch {
+      ready = false;
+    }
+    check(ready, `shot ${shot.n} staged (window.__shotReady)`);
+    const shotErr = await page.evaluate(() => window.__shotError || null);
+    check(!shotErr, `shot ${shot.n} no staging error` + (shotErr ? ` (${shotErr})` : ''));
+    await page.waitForTimeout(700);
+    const outPath = join(shotsDir, shot.file);
+    await page.screenshot({ path: outPath, type: 'jpeg', quality: 80 });
+    const info = await stat(outPath);
+    console.log(`shot ${shot.n}: ${shot.file} ${info.size} bytes`);
+    check(info.size > 10000, `shot ${shot.n} screenshot non-empty`);
+    check(info.size <= 262144, `shot ${shot.n} screenshot <= 256 KiB (${info.size} bytes)`);
+    check(consoleErrors.length === 0, `shot ${shot.n} 0 console errors` + (consoleErrors.length ? ` (${consoleErrors.slice(0, 3).join(' | ')})` : ''));
+    check(pageErrors.length === 0, `shot ${shot.n} 0 page errors` + (pageErrors.length ? ` (${pageErrors.slice(0, 3).join(' | ')})` : ''));
+  }
+} catch (err) {
+  failures.push('browser run: ' + (err && err.message || err));
+  console.log('FAIL browser run: ' + (err && err.message || err));
+} finally {
+  if (browser) await browser.close().catch(() => {});
+  server.close();
+}
+
+if (failures.length === 0) {
+  console.log('ALL CHECKS PASSED');
+  process.exit(0);
+} else {
+  console.log('FAILURES: ' + failures.length);
   process.exit(1);
 }
-console.log('ALL CHECKS PASSED');

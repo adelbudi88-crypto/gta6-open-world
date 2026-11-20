@@ -1,126 +1,151 @@
-// Cars: 22 traffic cars cruising the road grid plus the player's rides
-// (Comet GT, Neon Runner) and Tono's red car. Simple arcade physics:
-// throttle, brake, steering by heading, speed in km/h.
+// Vehicles — box-built cars (no model files), arcade handling, traffic AI.
+// Player cars: Comet GT and Neon Runner. Traffic: 32 cars on the road grid.
+// Parked cars can be carjacked with E (see player.js).
 import * as THREE from 'three';
-import { makeRng } from './rng.js';
 
-const CAR_COLORS = [0xc0c8d8, 0x8a2a2a, 0x2a6a8a, 0xd8b13c, 0x3a3a44, 0x7d5eff, 0xe8e8e8, 0x2e8a4a];
-const CAR_NAMES = ['Comet GT', 'Neon Runner', 'Azul Coupe', 'Vortex S', 'Palmline GT', 'Harbor Hauler'];
+export const PLAYER_CARS = {
+  comet: { name: 'Comet GT', color: 0xffb400, topSpeed: 158, accel: 34 },
+  neon: { name: 'Neon Runner', color: 0x22e6ff, topSpeed: 166, accel: 36 },
+};
 
-export function makeCarMesh(THREE, color, name) {
+const TRAFFIC_COLORS = [0xc0c0c8, 0x30343c, 0x8a1a1a, 0x1a4a8a, 0xd8d8d8, 0x3c6b2e, 0x707070, 0xff6a00];
+const TRAFFIC_NAMES = ['Azul GT Coupe', 'Torre Sedan', 'Plaza Hatch', 'Harbor Van', 'Mirage Taxi', 'Beach Cruiser'];
+
+export function createCarMesh(color, opts = {}) {
   const g = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.65 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.62, 4.6), bodyMat);
-  body.position.y = 0.55;
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.6 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.85, 2), bodyMat);
+  body.position.y = 0.75;
   g.add(body);
   const cabin = new THREE.Mesh(
-    new THREE.BoxGeometry(1.8, 0.55, 2.2),
-    new THREE.MeshStandardMaterial({ color: 0x101018, roughness: 0.15, metalness: 0.8 }),
+    new THREE.BoxGeometry(2.2, 0.7, 1.8),
+    new THREE.MeshStandardMaterial({ color: 0x14161e, roughness: 0.2, metalness: 0.8 }),
   );
-  cabin.position.set(0, 1.05, -0.25);
+  cabin.position.set(-0.2, 1.45, 0);
   g.add(cabin);
-  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 0.9 });
-  for (const [x, z] of [[-0.95, 1.5], [0.95, 1.5], [-0.95, -1.5], [0.95, -1.5]]) {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.3, 12), wheelMat);
-    wheel.rotation.z = Math.PI / 2;
-    wheel.position.set(x, 0.38, z);
-    g.add(wheel);
+  const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.35, 10);
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9 });
+  const wheels = [];
+  for (const [wx, wz] of [[1.5, 0.95], [1.5, -0.95], [-1.5, 0.95], [-1.5, -0.95]]) {
+    const w = new THREE.Mesh(wheelGeo, wheelMat);
+    w.rotation.x = Math.PI / 2;
+    w.position.set(wx, 0.42, wz);
+    g.add(w);
+    wheels.push(w);
   }
-  const lightMat = new THREE.MeshBasicMaterial({ color: 0xfff2b0 });
-  for (const x of [-0.7, 0.7]) {
-    const light = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.1), lightMat);
-    light.position.set(x, 0.6, 2.32);
-    g.add(light);
+  const lightMat = new THREE.MeshBasicMaterial({ color: 0xfff2c0 });
+  for (const wz of [0.6, -0.6]) {
+    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.25, 0.4), lightMat);
+    hl.position.set(2.25, 0.8, wz);
+    g.add(hl);
   }
-  const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
-  for (const x of [-0.7, 0.7]) {
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.1), tailMat);
-    tail.position.set(x, 0.6, -2.32);
-    g.add(tail);
+  const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2222 });
+  for (const wz of [0.6, -0.6]) {
+    const tl = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.25, 0.4), tailMat);
+    tl.position.set(-2.25, 0.8, wz);
+    g.add(tl);
   }
-  g.userData.carName = name;
+  if (opts.police) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.22, 1.1), new THREE.MeshBasicMaterial({ color: 0x2266ff }));
+    bar.position.set(-0.2, 1.95, 0);
+    g.add(bar);
+    const bar2 = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.22, 0.5), new THREE.MeshBasicMaterial({ color: 0xff2222 }));
+    bar2.position.set(-0.2, 1.95, 0.55);
+    g.add(bar2);
+    g.userData.lightBar = bar;
+  }
+  if (opts.neon) {
+    const under = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.08, 1.9), new THREE.MeshBasicMaterial({ color: opts.neon }));
+    under.position.y = 0.12;
+    g.add(under);
+  }
+  g.userData.wheels = wheels;
   return g;
 }
 
-export function createVehicles(scene) {
-  const rng = makeRng(777);
+export function createVehicles(scene, rng) {
   const traffic = [];
-  const lanes = [-180, -120, -60, 0, 60, 120, 180];
-  for (let i = 0; i < 22; i++) {
-    const along = rng.chance(0.5);
+  const parked = [];
+  const lanes = [-120, -80, -40, 0, 40, 80, 120];
+
+  // 32 moving traffic cars on the grid.
+  for (let i = 0; i < 32; i++) {
+    const horizontal = rng.chance(0.5);
     const lane = rng.pick(lanes);
-    const pos = rng.range(-240, 240);
-    const color = rng.pick(CAR_COLORS);
-    const mesh = makeCarMesh(THREE, color, rng.pick(CAR_NAMES));
-    const dir = rng.chance(0.5) ? 1 : -1;
-    if (along) mesh.position.set(lane + (dir > 0 ? 3.5 : -3.5), 0, pos);
-    else mesh.position.set(pos, 0, lane + (dir > 0 ? 3.5 : -3.5));
-    mesh.rotation.y = along ? (dir > 0 ? 0 : Math.PI) : (dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+    const along = rng.range(-150, 150);
+    const mesh = createCarMesh(rng.pick(TRAFFIC_COLORS));
+    mesh.position.set(horizontal ? along : lane, 0, horizontal ? lane : along);
+    mesh.rotation.y = horizontal ? (rng.chance(0.5) ? 0 : Math.PI) : (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2);
     scene.add(mesh);
     traffic.push({
-      mesh,
-      speed: rng.range(28, 52),
-      along,
-      lane,
-      dir,
-      color,
+      mesh, horizontal, lane, along, speed: rng.range(7, 13),
+      dir: rng.chance(0.5) ? 1 : -1, name: rng.pick(TRAFFIC_NAMES),
     });
   }
-  // Tono's red car — the mission target that stays ahead of the player.
-  const tono = makeCarMesh(THREE, 0xd81e1e, "Tono's Comet");
-  tono.position.set(2, 0, -40);
-  scene.add(tono);
 
-  function stepCar(car, dt, frozen) {
-    if (frozen) return;
-    const step = (car.speed / 3.6) * dt * car.dir;
-    if (car.along) {
-      car.mesh.position.z += step;
-      if (car.mesh.position.z > 250) car.mesh.position.z = -250;
-      if (car.mesh.position.z < -250) car.mesh.position.z = 250;
-    } else {
-      car.mesh.position.x += step;
-      if (car.mesh.position.x > 250) car.mesh.position.x = -250;
-      if (car.mesh.position.x < -250) car.mesh.position.x = 250;
-    }
+  // 10 parked cars (carjackable) along the plaza + strip.
+  const parkSpots = [[30, -30], [34, -30], [-30, -70], [-34, -70], [70, 30], [74, 30], [-70, -30], [-74, -30], [30, 70], [-30, 110]];
+  for (const [px, pz] of parkSpots) {
+    const mesh = createCarMesh(rng.pick(TRAFFIC_COLORS));
+    mesh.position.set(px, 0, pz);
+    mesh.rotation.y = rng.range(0, Math.PI * 2);
+    scene.add(mesh);
+    parked.push({ mesh, name: rng.pick(TRAFFIC_NAMES), stolen: false });
   }
 
   return {
-    traffic,
-    tono,
-    update(dt, frozen) {
-      for (const car of traffic) stepCar(car, dt, frozen);
+    traffic, parked,
+    nearestCar(x, z, maxDist, includeTraffic) {
+      let best = null, bestD = maxDist;
+      const pool = includeTraffic ? traffic.concat(parked) : parked;
+      for (const c of pool) {
+        if (c.stolen) continue;
+        const dx = c.mesh.position.x - x, dz = c.mesh.position.z - z;
+        const d = Math.hypot(dx, dz);
+        if (d < bestD) { bestD = d; best = c; }
+      }
+      return best;
     },
-    // Push any traffic car out of the corridor between a and b (used so a
-    // frozen car never blocks the vault sightline in foot shots).
-    clearCorridor(a, b, radius) {
-      for (const car of traffic) {
-        const p = car.mesh.position;
-        const abx = b.x - a.x;
-        const abz = b.z - a.z;
-        const len2 = abx * abx + abz * abz || 1;
-        let t = ((p.x - a.x) * abx + (p.z - a.z) * abz) / len2;
-        t = Math.max(0, Math.min(1, t));
-        const cx = a.x + abx * t;
-        const cz = a.z + abz * t;
-        const dx = p.x - cx;
-        const dz = p.z - cz;
-        if (dx * dx + dz * dz < radius * radius) {
-          p.x += radius * 1.6;
-          p.z += radius;
-        }
+    update(dt, frozen) {
+      if (frozen) return;
+      for (const c of traffic) {
+        c.along += c.speed * c.dir * dt;
+        if (c.along > 165) c.along = -165;
+        if (c.along < -165) c.along = 165;
+        if (c.horizontal) { c.mesh.position.x = c.along; c.mesh.position.z = c.lane; }
+        else { c.mesh.position.z = c.along; c.mesh.position.x = c.lane; }
+        for (const w of c.mesh.userData.wheels) w.rotation.z += c.speed * dt * 2;
       }
     },
   };
 }
 
-// Gear bands tuned so 137 and 144 km/h read GEAR 6.
-export function gearFor(speedKmh) {
-  if (speedKmh < 1) return 1;
-  if (speedKmh < 25) return 1;
-  if (speedKmh < 50) return 2;
-  if (speedKmh < 75) return 3;
-  if (speedKmh < 100) return 4;
-  if (speedKmh < 125) return 5;
-  return 6;
+// Arcade car physics: accel/brake/steer with drag and an upgrade multiplier.
+// Returns speed in km/h. spin is applied by police PIT maneuvers.
+export function driveCar(car, input, dt, topSpeedKmh) {
+  const top = topSpeedKmh / 3.6;
+  if (input.forward) car.speed += car.accel * dt;
+  if (input.back) car.speed -= car.accel * 0.7 * dt;
+  if (!input.forward && !input.back) car.speed -= Math.sign(car.speed) * 8 * dt;
+  car.speed = Math.max(-top * 0.35, Math.min(top, car.speed));
+  if (Math.abs(car.speed) < 0.05 && !input.forward && !input.back) car.speed = 0;
+  const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
+  const spd01 = Math.min(1, Math.abs(car.speed) / top);
+  car.angle += steer * (0.9 + spd01 * 1.5) * Math.sign(car.speed || 1) * dt * (car.speed < 0 ? -1 : 1);
+  if (car.spin) {
+    car.angle += car.spin * dt;
+    car.spin *= Math.pow(0.2, dt);
+    if (Math.abs(car.spin) < 0.05) car.spin = 0;
+  }
+  car.mesh.position.x += Math.cos(car.angle) * car.speed * dt;
+  car.mesh.position.z -= Math.sin(car.angle) * car.speed * dt;
+  car.mesh.rotation.y = car.angle;
+  car.mesh.position.x = Math.max(-168, Math.min(168, car.mesh.position.x));
+  car.mesh.position.z = Math.max(-168, Math.min(168, car.mesh.position.z));
+  for (const w of car.mesh.userData.wheels) w.rotation.z += car.speed * dt * 2;
+  return Math.abs(car.speed) * 3.6;
+}
+
+export function gearFor(kmh) {
+  return Math.max(1, Math.min(6, Math.floor(kmh / 24) + 1));
 }
