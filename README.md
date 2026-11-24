@@ -1,30 +1,77 @@
-# PORTO AZUL II — 8 story missions, police chases, heists, radio and saves
+# Porto Azul II — 12 story missions, 6-district turf, crew nitro & EMP, street races, side jobs, 10 vehicles, day-cycle city
+
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/adelbudi88-crypto/gta6-open-world/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-An open-world crime game set in **Porto Azul**, a dusk-soaked neon city on the coast. You are **Daz**, a driver with nothing but a fast car and faster friends. Benny, Tono and Mara have eight jobs for you — from a quiet plaza pickup to the last casino vault heist on the Mirage Strip.
+**Porto Azul II** is a 3D open-world crime game set in Porto Azul, a sun-soaked coastal
+city that slides from golden dusk into neon night. Play as **Daz**, a driver fresh out of
+the Marina Bay docks, and climb from street-level jobs to the biggest score the city has
+ever seen — with Benny's garage behind you, Tono's nitro under the hood, and Mara's EMP
+in your pocket.
 
 ## What is in the game
 
-- **8 story missions** with chapter banners, timers and payouts: Welcome to Porto Azul ($9,500), Tono's Debt ($14,000), Heat Wave ($19,000), The Vault Job ($26,000), Casino Vault Run ($28,500), Harbor Lights ($32,000), Air One Down ($41,000) and the finale The Last Score ($60,000).
-- **Wanted system, 0–5 stars**: foot cops, pursuit cars, police roadblocks at 3+ stars, PIT maneuvers that spin your car, and Air One — one helicopter at 3 stars, a second at 5, both sweeping a visible searchlight cone over the streets.
-- **Weapon wheel** (hold Q, or press 1/2/3): Pistol (infinite), HORNET SMG (24/120), Riot Shotgun (18/24), with HUD ammo.
-- **Carjacking**: press E near any parked or traffic car to steal it. The driver flees on foot — and if a cop or pedestrian sees it, the heat goes up a star.
-- **A living city**: 32 traffic cars, 60 pedestrians, four districts (Torre Plaza, The Mirage Strip, Palmline Beach, Harbor East), neon casino signs, palms, streetlights, a harbor dock with a boat and smuggle crates, and burning wrecks after high-speed crashes.
-- **Economy + garage**: mission payouts, cash, respect levels, and Benny's Garage upgrades (engine, armour, tires).
-- **Full HUD**: district + flavor text, mission + timer, day + clock, cash, wanted stars, health + armour bars, respect level, minimap with a route to the target, speedometer + gear + car name, radio station, weapon + ammo.
-- **Radio**: four WebAudio synth stations (SOL FM 95.4 Synthwave, Azul 101.1, Neon 88.7, Harbour Talk 720) — press C to switch.
-- **Saves**: progress, cash, respect, missions and upgrades persist in localStorage.
+- **12 story missions** with chapter banners (1/12–12/12), timers and payouts, from
+  "First Light" ($8,000) to the 3-stage finale **"The Last Score"** ($75,000): casino
+  vault, five-star chase through roadblocks and spike strips, then a boat escape from
+  the harbor. New chapters: "Street Kings" (3-lap street race, $35,000), "Dock Orders"
+  (delivery chain, $28,000), "Turf War" (gang shootout, $44,000).
+- **6-district turf standing** — Torre Plaza, The Mirage Strip, Harbor East, Palmline
+  Beach, Old Town, Marina Bay. Finish missions and side jobs to raise standing 0–5 in
+  each district; the pause dashboard shows the full turf atlas.
+- **Crew abilities** — Benny runs garage upgrades (engine, armour, nitro refills);
+  Tono gives you **NITRO** (hold Shift, 3 charges, flame + speed burst); Mara gives you
+  **EMP** (press X, disables police in a radius for 8s, 60s cooldown, $500 a use).
+- **Side jobs & street races** — repeatable taxi fares, dock deliveries and 6-car street
+  races ($800–$2,500 a job) that pay cash and raise turf standing.
+- **10 vehicles** — 9 named cars (Comet GT, Neon Runner, Azul GT Coupe, Falcon
+  Interceptor, Brisa Van, Solara S, Viento LX, Coral Coupe, Duna Pickup) plus the
+  drivable **Vela Speedboat** in the harbor. Steal any of them: press E near a car on
+  foot to carjack it (drivers flee; witnesses raise your wanted level).
+- **5 weapons on the wheel** (hold Q or press 1–5) — Pistol (infinite), HORNET SMG
+  (120 reserve), Riot Shotgun (24 shells), Carbine Rifle (90 reserve), Molotov (6,
+  area fire).
+- **5-star police dispatch** — patrol cars, foot cops, PIT maneuvers, roadblocks at
+  wanted 3+, **spike strips** at wanted 4+, and Air One helicopters (two at wanted 5)
+  with visible searchlight cones. Rammed or shot cars **explode** and leave burning
+  wrecks.
+- **A living city** — 32 traffic cars, 60 pedestrians, lit windows, neon casino signs,
+  palms on Palmline Beach, docks and boats at Harbor East, and a **day cycle**: dusk
+  19:07 melts into night 21:40, neon brightens, streetlights switch on.
+- **Full HUD** — district + flavor line + turf standing, mission banner + timer, clock,
+  cash, wanted stars, health/armour bars, respect level, minimap with route, speedometer
+  + gear + car name, radio, weapon + ammo, nitro/EMP status, spike warnings.
+- **Title screen + pause dashboard + 3 save slots** — start screen with slot select,
+  Esc/P opens stats, turf atlas, controls and garage.
 
 ## Controls
 
-WASD / arrows — drive & move · Shift — run · E — enter / steal / exit car · Q (hold) — weapon wheel · 1/2/3 — weapons · Click / F — fire · C — radio · G — garage (near Benny's) · M — start mission
+| Key | Action |
+| --- | --- |
+| WASD | Move / drive (W accelerate, S brake/reverse) |
+| Mouse | Camera (drag) |
+| E | Enter / exit car, carjack |
+| Q (hold) / 1–5 | Weapon wheel / select weapon |
+| Click | Fire weapon |
+| Shift (hold) | Nitro (Tono, 3 charges) |
+| X | EMP pulse (Mara, 60s cooldown, $500) |
+| G | Benny's Garage (near the garage marker) |
+| T / Y / U | Side jobs: taxi fare / dock delivery / street race |
+| C | Change radio station |
+| P / Esc | Pause dashboard |
+| R | Restart mission |
+| M | Mute |
 
-## Play it
+## Run it
 
-Serve the game locally with `node serve.ts`, then open http://localhost:8080. No build step, no network requests — the game runs fully offline (three.js is vendored under `game/vendor/`).
+```sh
+node serve.ts
+# open http://localhost:8080
+```
 
-## Screenshots
+Screenshots are staged deterministically: `node tools/shots.mjs` serves the game, opens
+`?shot=drive|foot|chase|mission&seed=1`, and writes the four dossier screenshots.
 
-The dossier screenshots are staged mid-action with `node tools/shots.mjs`, which serves the game headlessly, captures all four shots at dusk and verifies them (0 console errors, each ≤ 256 KiB).
+Built with three.js (vendored under `game/vendor/`, no network requests, fully offline).
+MIT licensed.

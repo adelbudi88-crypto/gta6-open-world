@@ -1,43 +1,41 @@
-// Save system — localStorage, one slot. Saves cash, respect, mission progress,
-// garage upgrades, best wanted level survived and the player's last car.
-const KEY = 'porto-azul-28-save-v1';
+// Save system: 3 slots in localStorage.
+const KEY = (slot) => 'portoazul2_save_' + slot;
 
-export function loadSave() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (!data || typeof data.cash !== 'number') return null;
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-export function saveGame(state) {
+export function saveGame(slot, state) {
   try {
     const data = {
       cash: state.cash,
+      missionNum: state.missionNum,
       respect: state.respect,
-      missionIndex: state.missionIndex,
-      missionsDone: state.missionsDone.slice(),
-      upgrades: { ...state.upgrades },
-      bestWanted: state.bestWanted,
-      car: state.playerCar,
+      health: state.health,
+      armour: state.armour,
+      turf: state.turfStanding,
+      nitroCharges: state.crew?.nitroCharges ?? 3,
       day: state.day,
-      savedAt: Date.now(),
+      clock: state.clock,
+      missionsDone: state.missionsDone,
+      sideJobsDone: state.sideJobsDone,
+      savedAt: new Date().toISOString(),
     };
-    localStorage.setItem(KEY, JSON.stringify(data));
+    localStorage.setItem(KEY(slot), JSON.stringify(data));
     return true;
   } catch {
     return false;
   }
 }
 
-export function clearSave() {
-  try { localStorage.removeItem(KEY); } catch { /* storage unavailable */ }
+export function loadGame(slot) {
+  try {
+    const raw = localStorage.getItem(KEY(slot));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
-export function hasSave() {
-  return loadSave() !== null;
+export function slotInfo() {
+  return [1, 2, 3].map((s) => {
+    const d = loadGame(s);
+    return { slot: s, data: d };
+  });
 }

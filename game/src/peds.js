@@ -1,94 +1,67 @@
-// Pedestrians — 60 walkers on the sidewalks. They stroll between blocks,
-// cross at corners, and flee on foot when a car is jacked or a crash happens
-// nearby. A fleeing driver (after a carjacking) is just a ped in a hurry.
+// Pedestrians: 60 walkers on the sidewalks; they flee gunfire and carjackings,
+// and a witness can raise your wanted level.
 import * as THREE from 'three';
 
-const SHIRTS = [0xe8e8e8, 0xff6a3c, 0x3ca8ff, 0xffd23c, 0x8aff6b, 0xff4d6d, 0x9b6bff, 0x222226];
-const PANTS = [0x222633, 0x3a3a44, 0x4a2c1a, 0x1a3a4a];
+const SHIRT_COLORS = [0xe8e8e8, 0xff8df0, 0x7dff5e, 0xffb020, 0x22e6ff, 0xff5f6d, 0xc9a86a];
 
-function makePedMesh(rng) {
-  const g = new THREE.Group();
-  const shirt = new THREE.Mesh(
-    new THREE.BoxGeometry(0.55, 0.75, 0.32),
-    new THREE.MeshStandardMaterial({ color: rng.pick(SHIRTS), roughness: 0.9 }),
-  );
-  shirt.position.y = 1.05;
-  g.add(shirt);
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.24, 10, 8),
-    new THREE.MeshStandardMaterial({ color: 0xd8a878, roughness: 0.8 }),
-  );
-  head.position.y = 1.62;
-  g.add(head);
-  const legs = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.7, 0.3),
-    new THREE.MeshStandardMaterial({ color: rng.pick(PANTS), roughness: 0.9 }),
-  );
-  legs.position.y = 0.35;
-  g.add(legs);
-  return g;
-}
-
-export function createPeds(scene, rng) {
-  const peds = [];
-  for (let i = 0; i < 60; i++) {
-    const mesh = makePedMesh(rng);
-    const x = rng.range(-150, 150), z = rng.range(-150, 150);
-    mesh.position.set(x, 0, z);
-    scene.add(mesh);
-    peds.push({
-      mesh, x, z, angle: rng.range(0, Math.PI * 2),
-      speed: rng.range(0.9, 1.8), flee: 0, tx: x, tz: z,
+export function createPeds(scene, rng, count = 60) {
+  const list = [];
+  const bodyGeo = new THREE.CylinderGeometry(0.32, 0.38, 1.5, 8);
+  const headGeo = new THREE.SphereGeometry(0.28, 8, 8);
+  for (let i = 0; i < count; i++) {
+    const g = new THREE.Group();
+    const shirt = new THREE.MeshStandardMaterial({ color: SHIRT_COLORS[Math.floor(rng.next() * SHIRT_COLORS.length)], roughness: 0.9 });
+    const body = new THREE.Mesh(bodyGeo, shirt);
+    body.position.y = 0.95;
+    const head = new THREE.Mesh(headGeo, new THREE.MeshStandardMaterial({ color: 0xd8a077, roughness: 0.8 }));
+    head.position.y = 1.95;
+    g.add(body, head);
+    const lane = Math.floor(rng.range(-260, 260) / 40) * 40;
+    g.position.set(rng.range(-260, 260), 0, lane + (rng.chance(0.5) ? 6 : -6));
+    scene.add(g);
+    list.push({
+      group: g, speed: rng.range(1.2, 2.6), dir: rng.chance(0.5) ? 1 : -1,
+      axis: rng.chance(0.5) ? 'x' : 'z', fleeing: false, fleeT: 0,
     });
   }
-
   return {
-    peds,
-    count: 60,
-    fleeFrom(x, z, radius) {
-      for (const p of peds) {
-        const dx = p.x - x, dz = p.z - z;
-        if (dx * dx + dz * dz < radius * radius) {
-          p.flee = 6;
-          p.tx = p.x + dx * 3;
-          p.tz = p.z + dz * 3;
-        }
-      }
-    },
-    spawnFleeingDriver(x, z) {
-      const p = peds.find((q) => q.flee === 0 && Math.hypot(q.x - x, q.z - z) > 30);
-      if (p) {
-        p.x = x; p.z = z; p.mesh.position.set(x, 0, z);
-        p.flee = 8;
-        p.tx = x + 40; p.tz = z + 40;
-      }
-    },
-    update(dt, frozen) {
+    list,
+    update(dt, frozen, dangerPos) {
       if (frozen) return;
-      for (const p of peds) {
-        if (p.flee > 0) {
-          p.flee -= dt;
-          const dx = p.tx - p.x, dz = p.tz - p.z;
-          const d = Math.hypot(dx, dz) || 1;
-          p.x += (dx / d) * 4.2 * dt;
-          p.z += (dz / d) * 4.2 * dt;
-          p.angle = Math.atan2(-dz, dx);
-        } else {
-          p.x += Math.cos(p.angle) * p.speed * dt;
-          p.z -= Math.sin(p.angle) * p.speed * dt;
-          if (Math.hypot(p.x - p.tx, p.z - p.tz) < 2 || rng.chance(0.002)) {
-            p.tx = Math.max(-150, Math.min(150, p.x + rng.range(-50, 50)));
-            p.tz = Math.max(-150, Math.min(150, p.z + rng.range(-50, 50)));
-            p.angle = Math.atan2(-(p.tz - p.z), p.tx - p.x);
-          }
-          if (Math.abs(p.x) > 155 || Math.abs(p.z) > 155) {
-            p.angle += Math.PI;
-            p.x = Math.max(-150, Math.min(150, p.x));
-            p.z = Math.max(-150, Math.min(150, p.z));
-          }
+      for (const p of list) {
+        if (dangerPos) {
+          const d = p.group.position.distanceTo(dangerPos);
+          if (d < 26 && !p.fleeing) { p.fleeing = true; p.fleeT = 4; }
         }
-        p.mesh.position.set(p.x, 0, p.z);
-        p.mesh.rotation.y = p.angle;
+        if (p.fleeing) {
+          p.fleeT -= dt;
+          const away = p.group.position.clone().sub(dangerPos || p.group.position).setY(0).normalize();
+          p.group.position.addScaledVector(away, 5.5 * dt);
+          if (p.fleeT <= 0) p.fleeing = false;
+          continue;
+        }
+        const v = p.speed * p.dir * dt;
+        if (p.axis === 'x') {
+          p.group.position.x += v;
+          if (p.group.position.x > 272) { p.group.position.x = -272; }
+          if (p.group.position.x < -272) { p.group.position.x = 272; }
+        } else {
+          p.group.position.z += v;
+          if (p.group.position.z > 272) { p.group.position.z = -272; }
+          if (p.group.position.z < -272) { p.group.position.z = 272; }
+        }
+      }
+    },
+    // A ped within 20m who saw the crime counts as a witness.
+    witnessNear(pos, radius = 20) {
+      for (const p of list) {
+        if (p.group.position.distanceTo(pos) < radius) return true;
+      }
+      return false;
+    },
+    fleeFrom(pos) {
+      for (const p of list) {
+        if (p.group.position.distanceTo(pos) < 14) { p.fleeing = true; p.fleeT = 5; }
       }
     },
   };

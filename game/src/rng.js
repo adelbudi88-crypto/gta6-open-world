@@ -1,5 +1,4 @@
-// Seeded deterministic RNG (mulberry32) — every run of Porto Azul II v2.8
-// uses the same city, traffic and pedestrian layout unless a save overrides it.
+// Seeded RNG (mulberry32) — deterministic city, traffic and pedestrians.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -20,5 +19,3 @@ export function makeRng(seed) {
     chance(p) { return next() < p; },
   };
 }
-
-export const WORLD_SEED = 20261120;

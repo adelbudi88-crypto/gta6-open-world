@@ -1,147 +1,208 @@
-// Shot staging — the four dossier screenshots. Each shot pins exact values
-// from the v2.8 brief (chapter, cash, wanted, weapon, timer, district, speed),
-// freezes the world so the camera, the cops and the cash cannot drift during
-// the capture, stages pursuit cops to the flanks so they never occlude the
-// player's car, and renders one frame before raising window.__shotReady.
-const SHOTS = [
-  { n: 1, chapter: 6, name: 'Harbor Lights', cash: 18450, wanted: 4, timer: 134, minutes: 19 * 60 + 7, district: 'TORRE PLAZA', car: 'comet', speed: 137, weapon: 'smg', mag: 30, reserve: 120, health: 100, armour: 60, pos: [40, -40], angle: 0, onFoot: false },
-  { n: 2, chapter: 7, name: 'Air One Down', cash: 12300, wanted: 5, timer: 298, minutes: 19 * 60 + 7, district: 'THE MIRAGE STRIP', car: null, speed: 0, weapon: 'smg', mag: 24, reserve: 120, health: 91, armour: 40, pos: [-40, -80], angle: 3.14, onFoot: true },
-  { n: 3, chapter: 8, name: 'The Last Score', cash: 24000, wanted: 5, timer: 180, minutes: 19 * 60 + 8, district: 'TORRE PLAZA', car: 'neon', speed: 144, weapon: 'smg', mag: 30, reserve: 120, health: 100, armour: 60, pos: [0, -80], angle: 0, onFoot: false },
-  { n: 4, chapter: 5, name: 'Casino Vault Run', cash: 48500, wanted: 4, timer: 105, minutes: 19 * 60 + 8, district: 'THE MIRAGE STRIP', car: null, speed: 0, weapon: 'shotgun', mag: 18, reserve: 24, health: 88, armour: 60, pos: [-40, -40], angle: 3.14, onFoot: true },
-];
+// Deterministic dossier shots. Each shot pins the whole game state (cash, wanted,
+// weapon, timer, district, clock, race, EMP, nitro, spike warning) and stages the
+// world around the player: pursuit cops on the flanks, roadblock + spike strip ahead,
+// rivals ahead, the boat in the harbor water. The world is frozen for the capture.
+import * as THREE from 'three';
+import { districtAt } from './turf.js';
+import { buildCar, buildBoat, CAR_MODELS } from './vehicles.js';
 
-function sidePos(px, pz, angle, fwd, lat) {
-  const fx = Math.cos(angle), fz = -Math.sin(angle);
-  return [px + fx * fwd - fz * lat, pz + fz * fwd + fx * lat];
+function setBase(state, o) {
+  Object.assign(state, o);
+  state.districtObj = districtAt(o.playerX, o.playerZ);
+  state.playerPos = new THREE.Vector3(o.playerX, 0, o.playerZ);
+  state.objectivePos = { x: o.objX, z: o.objZ };
+  state.routeName = o.routeName;
 }
 
-export function applyShot(world, n) {
-  const shot = SHOTS.find((s) => s.n === n);
-  if (!shot) return false;
-  const s = world.state;
-  const p = world.player;
-  world.frozen = true;
+export const SHOT_NAMES = ['drive', 'foot', 'chase', 'mission'];
 
-  // Core state — exact brief values.
-  s.day = 1;
-  s.minutes = shot.minutes;
-  s.cash = shot.cash;
-  s.health = shot.health;
-  s.armour = shot.armour;
-  p.health = shot.health;
-  p.armour = shot.armour;
-  p.weapon = shot.weapon;
-  p.weapons[shot.weapon].mag = shot.mag;
-  p.weapons[shot.weapon].reserve = shot.reserve;
-  p.speedKmh = shot.speed;
+export function applyShot(name, ctx) {
+  const { state, player, police, traffic, scene } = ctx;
+  state.frozen = true;
+  state.day = 1;
+  state.health = 100;
+  state.armour = 0;
+  state.respect = 4;
+  state.missionsDone = 0;
+  state.sideJobsDone = 0;
+  state.carsStolen = 3;
+  state.sideJob = null;
+  state.racePos = null;
+  state.spikeWarning = false;
+  state.spiked = false;
+  state.pitSpin = 0;
+  state.hint = '';
+  state.boatPos = null;
+  if (!state.turfStanding) state.turfStanding = {};
+  for (const d of ['TORRE PLAZA', 'THE MIRAGE STRIP', 'HARBOR EAST', 'PALMLINE BEACH', 'OLD TOWN', 'MARINA BAY']) {
+    if (state.turfStanding[d] === undefined) state.turfStanding[d] = 0;
+  }
 
-  // Player pose.
-  p.pos.x = shot.pos[0];
-  p.pos.z = shot.pos[1];
-  p.angle = shot.angle;
-  if (shot.onFoot) {
-    p.onFoot = true;
-    p.car = null;
-    p.mesh.visible = true;
-    p.mesh.position.set(p.pos.x, 0, p.pos.z);
-    p.mesh.rotation.y = p.angle;
-    // Rim-light Daz so the on-foot player reads at dusk (shot only).
-    const jacket = p.mesh.children[0];
-    if (jacket && jacket.material && jacket.material.emissive) {
-      jacket.material.emissive.setHex(0x0e7a6b);
-      jacket.material.emissiveIntensity = 0.7;
+  if (name === 'drive') {
+    // Chapter 9/12 STREET KINGS race, Comet GT, 152 km/h, NITRO, 1/6, dusk.
+    // Race runs down the Torre Plaza road (x=-180).
+    setBase(state, {
+      missionNum: 9, missionName: 'STREET KINGS', missionStageLabel: '',
+      missionObjective: 'Win the 3-lap street race — Lap 2/3',
+      missionTimer: 92, cash: 22400, wanted: 2, clock: 19.07,
+      playerX: -180, playerZ: -160, objX: -180, objZ: -260, routeName: 'RACE CHECKPOINT',
+      speedKmh: 152, driving: true, carName: 'Comet GT', carHealth: 100,
+      weaponIdx: 1, racePos: 1, hint: 'NITRO ACTIVE — HOLD SHIFT',
+    });
+    state.ammo = [Infinity, 24, 6, 30, 6];
+    state.ammoReserve = [Infinity, 120, 24, 90, 0];
+    state.crew.nitroCharges = 2;
+    state.crew.nitroActive = true;
+    state.crew.empState = 'ready'; state.crew.empTimer = 0;
+    ctx.input.camYaw = Math.PI;
+    const car = buildCar(CAR_MODELS[0]);
+    car.position.set(-180, 0, -160);
+    car.rotation.y = Math.PI; // heading -z along the road
+    scene.add(car);
+    player.enterCar({ group: car, model: CAR_MODELS[0] });
+    player.speedMs = 152 / 3.6;
+    player.speedKmh = 152;
+    player.yaw = Math.PI;
+    // Rival race cars ahead.
+    const rivals = [[-186, -185, 2], [-174, -198, 3], [-186, -212, 4]];
+    for (const [rx, rz, i] of rivals) {
+      const rc = buildCar(CAR_MODELS[i % CAR_MODELS.length]);
+      rc.position.set(rx, 0, rz);
+      rc.rotation.y = Math.PI;
+      scene.add(rc);
     }
-    const cap = p.mesh.children[2];
-    if (cap && cap.material && cap.material.emissive) {
-      cap.material.emissive.setHex(0xffb400);
-      cap.material.emissiveIntensity = 0.5;
-    }
-  } else {
-    if (p.car) { world.scene.remove(p.car.mesh); p.car = null; }
-    p.spawnCar(shot.car);
-    p.car.mesh.position.set(p.pos.x, 0, p.pos.z);
-    p.car.mesh.rotation.y = p.angle;
-    p.car.angle = p.angle;
-    p.car.speed = shot.speed / 3.6;
-    p.mesh.visible = false;
+    // Oncoming traffic + pursuit cops on the flanks, behind.
+    const t0 = traffic.cars[0];
+    if (t0) { t0.group.position.set(-186, 0, -120); t0.group.rotation.y = 0; }
+    const t1 = traffic.cars[1];
+    if (t1) { t1.group.position.set(-174, 0, -100); t1.group.rotation.y = 0; }
+    police.setWanted(2);
+    const c0 = police.cops[0];
+    if (c0) { c0.group.position.set(-198, 0, -140); c0.group.rotation.y = Math.PI; }
+    const c1 = police.cops[1];
+    if (c1) { c1.group.position.set(-162, 0, -145); c1.group.rotation.y = Math.PI; }
+    if (police.helis[0]) police.helis[0].group.position.set(-180, 42, -190);
   }
 
-  // Mission + banner (sticky — it must survive until the capture).
-  world.missions.index = shot.chapter - 1;
-  world.missions.active = true;
-  world.missions.timeLeft = shot.timer;
-  s.missionIndex = shot.chapter - 1;
-  const cur = world.missions.current();
-  world.hud.showBanner(cur.chapter + ': ' + cur.name, cur.desc, true);
-
-  // Wanted + police. setWanted activates the right count, then we re-stage
-  // the pursuit cars to the flanks so none occludes the player.
-  world.police.setWanted(shot.wanted, world);
-  const fx = Math.cos(shot.angle), fz = -Math.sin(shot.angle);
-  const flank = (i, fwd, lat) => sidePos(shot.pos[0], shot.pos[1], shot.angle, fwd, lat);
-  world.police.cops.forEach((c, i) => {
-    if (!c.active) return;
-    const spots = [flank(i, 16, -5), flank(i, 14, 5), flank(i, -2, -11), flank(i, 2, 11), flank(i, 30, 0), flank(i, 24, -8)];
-    const sp = spots[i % spots.length];
-    c.mesh.position.set(sp[0], 0, sp[1]);
-    c.angle = shot.angle + Math.PI;
-    c.mesh.rotation.y = c.angle;
-  });
-  world.police.footCops.forEach((f, i) => {
-    if (!f.active) return;
-    const sp = flank(i, 8 + (i % 3) * 4, (i % 2 === 0 ? -1 : 1) * (6 + (i % 2) * 4));
-    f.x = sp[0]; f.z = sp[1];
-    f.mesh.position.set(f.x, 0, f.z);
-  });
-  world.police.helis.forEach((h, i) => {
-    if (!h.active) return;
-    h.mesh.position.set(shot.pos[0] + fx * 8 + (i === 0 ? 10 : -14), 34, shot.pos[1] + fz * 8 + (i === 0 ? -12 : 10));
-  });
-
-  // Roadblocks ahead on the route (shots 1–3). Shot 4 keeps the banner band
-  // clear: no roadblock, cop cars stay low at the frame edges.
-  if (n === 1 || n === 2 || n === 3) world.police.spawnRoadblock(world);
-  if (n === 4) world.police.roadblocks.forEach((r) => { r.active = false; r.mesh.visible = false; });
-
-  // Traffic staging.
-  const t = world.vehicles.traffic;
-  if (n === 1) {
-    // Tono's red car ahead, oncoming traffic on the far lane.
-    if (t[0]) {
-      t[0].mesh.children[0].material.color.setHex(0xd21f1f);
-      t[0].mesh.position.set(shot.pos[0] + 20, 0, shot.pos[1]);
-      t[0].mesh.rotation.y = shot.angle;
-    }
-    if (t[1]) { t[1].mesh.position.set(shot.pos[0] + 34, 0, shot.pos[1] + 4); t[1].mesh.rotation.y = shot.angle + Math.PI; }
-    if (t[2]) { t[2].mesh.position.set(shot.pos[0] + 44, 0, shot.pos[1] + 4); t[2].mesh.rotation.y = shot.angle + Math.PI; }
-    if (t[3]) { t[3].mesh.position.set(shot.pos[0] - 18, 0, shot.pos[1] - 4); t[3].mesh.rotation.y = shot.angle; }
-  }
-  if (n === 3) {
-    if (t[0]) { t[0].mesh.position.set(shot.pos[0] + 22, 0, shot.pos[1]); t[0].mesh.rotation.y = shot.angle; }
-    if (t[1]) { t[1].mesh.position.set(shot.pos[0] + 36, 0, shot.pos[1] + 4); t[1].mesh.rotation.y = shot.angle + Math.PI; }
-    if (t[2]) { t[2].mesh.position.set(shot.pos[0] - 16, 0, shot.pos[1] - 4); t[2].mesh.rotation.y = shot.angle; }
-  }
-  if (n === 2) {
-    // Cops + cop cars + roadblock ringing the player on foot.
-    if (t[0]) { t[0].mesh.position.set(shot.pos[0] + 26, 0, shot.pos[1] - 8); t[0].mesh.rotation.y = shot.angle; }
+  if (name === 'foot') {
+    // Chapter 11/12 TURF WAR, on foot, night 21:40, Carbine Rifle 42/90, EMP READY.
+    // Player stands on the Mirage Strip road crossing (x=-60, z=-140), facing north.
+    setBase(state, {
+      missionNum: 11, missionName: 'TURF WAR', missionStageLabel: '',
+      missionObjective: 'Take the Strip turf — clear the gang corner',
+      missionTimer: 221, cash: 31700, wanted: 4, clock: 21.67,
+      playerX: -60, playerZ: -140, objX: -60, objZ: -190, routeName: 'GANG CORNER',
+      speedKmh: 0, driving: false, carName: 'ON FOOT', carHealth: 100,
+      weaponIdx: 3, hint: 'X — EMP PULSE READY · Q — WEAPON WHEEL',
+    });
+    state.ammo = [Infinity, 30, 6, 42, 6];
+    state.ammoReserve = [Infinity, 120, 24, 90, 0];
+    state.health = 88; state.armour = 55;
+    state.turfStanding['THE MIRAGE STRIP'] = 3;
+    state.crew.nitroCharges = 3;
+    state.crew.nitroActive = false;
+    state.crew.empState = 'ready'; state.crew.empTimer = 0;
+    ctx.input.camYaw = Math.PI;
+    player.group.position.set(-60, 0, -140);
+    player.yaw = Math.PI;
+    player.group.rotation.y = Math.PI;
+    police.setWanted(4);
+    // Cops + cop cars around, none in the center band.
+    const spots = [[-76, -128], [-44, -128], [-76, -158], [-44, -158]];
+    police.cops.forEach((c, i) => {
+      const s = spots[i % spots.length];
+      c.group.position.set(s[0], 0, s[1]);
+      c.group.rotation.y = Math.atan2(-60 - s[0], -140 - s[1]);
+    });
+    police.footCops.forEach((f, i) => {
+      const s = [[-68, -132], [-52, -132], [-68, -148], [-52, -148]][i % 4];
+      f.group.position.set(s[0], 0, s[1]);
+    });
+    if (police.helis[0]) police.helis[0].group.position.set(-50, 42, -170);
   }
 
-  // Weapon wheel visible on the foot + SMG shot.
-  if (n === 2) world.hud.showWheel(true, 'smg');
-  else world.hud.showWheel(false, shot.weapon);
+  if (name === 'chase') {
+    // Chapter 12/12 THE LAST SCORE STAGE 2, Neon Runner 148 km/h, MOST WANTED,
+    // heli + roadblock + spike strip ahead, boat in the harbor water.
+    setBase(state, {
+      missionNum: 12, missionName: 'THE LAST SCORE', missionStageLabel: 'STAGE 2/3 — FIVE-STAR CHASE',
+      missionObjective: 'Break the harbor cordon — reach the boat',
+      missionTimer: 125, cash: 58000, wanted: 5, clock: 19.08,
+      playerX: 180, playerZ: -100, objX: 250, objZ: -88, routeName: 'VELA SPEEDBOAT',
+      speedKmh: 148, driving: true, carName: 'Neon Runner', carHealth: 82,
+      weaponIdx: 1, hint: 'MOST WANTED — BREAK THE CORDON',
+    });
+    state.ammo = [Infinity, 18, 6, 30, 6];
+    state.ammoReserve = [Infinity, 120, 24, 90, 0];
+    state.crew.nitroCharges = 1;
+    state.crew.nitroActive = false;
+    state.crew.empState = 'cooldown'; state.crew.empTimer = 34;
+    const car = buildCar(CAR_MODELS[1]);
+    car.position.set(180, 0, -100);
+    car.rotation.y = Math.PI / 2; // heading +x toward the harbor
+    scene.add(car);
+    player.enterCar({ group: car, model: CAR_MODELS[1] });
+    player.speedMs = 148 / 3.6;
+    player.speedKmh = 148;
+    player.yaw = Math.PI / 2;
+    state.carHealth = 82; // enterCar resets it to 100; the chase has already cost paint
+    police.setWanted(5);
+    // Roadblock + spike strip ahead on the route, close enough to read.
+    police.deployRoadblock(220, -92);
+    police.deploySpike(205, -97);
+    state.spikeWarning = true;
+    // Pursuit cops flanking.
+    const c0 = police.cops[0];
+    if (c0) { c0.group.position.set(165, 0, -116); c0.group.rotation.y = Math.PI / 2; }
+    const c1 = police.cops[1];
+    if (c1) { c1.group.position.set(163, 0, -84); c1.group.rotation.y = Math.PI / 2; }
+    if (police.helis[0]) police.helis[0].group.position.set(195, 42, -120);
+    if (police.helis[1]) police.helis[1].group.position.set(170, 46, -70);
+    // Vela Speedboat waiting in the water, ahead-right.
+    const boat = buildBoat();
+    boat.position.set(250, 0.4, -88);
+    boat.rotation.y = -Math.PI / 2;
+    scene.add(boat);
+    state.boatPos = { x: 250, z: -88 };
+    ctx.boat = boat;
+  }
 
-  // Camera: pinned behind the player, looking down the road / at the casino.
-  const dist = shot.onFoot ? 9 : 11;
-  const height = shot.onFoot ? 3.8 : 4.2;
-  const lookAhead = shot.onFoot ? 12 : 14;
-  world.cameraPose = {
-    pos: [shot.pos[0] - fx * dist, height, shot.pos[1] - fz * dist],
-    look: [shot.pos[0] + fx * lookAhead, 1.2, shot.pos[1] + fz * lookAhead],
-  };
+  if (name === 'mission') {
+    // Chapter 12/12 THE LAST SCORE STAGE 1/3, casino vault, Molotov 4/6, EMP ACTIVE.
+    // Player on the road west of Casino Royale (x=-60, z=-140), facing east at the vault.
+    setBase(state, {
+      missionNum: 12, missionName: 'THE LAST SCORE', missionStageLabel: 'STAGE 1/3 — CASINO VAULT',
+      missionObjective: 'Crack the Royale vault — grab the cash',
+      missionTimer: 72, cash: 48500, wanted: 4, clock: 19.08,
+      playerX: -60, playerZ: -140, objX: 0, objZ: -140, routeName: 'CASINO ROYALE VAULT',
+      speedKmh: 0, driving: false, carName: 'ON FOOT', carHealth: 100,
+      weaponIdx: 4, hint: 'MARA EMP ACTIVE — POLICE BLIND 6s',
+    });
+    state.ammo = [Infinity, 30, 6, 30, 4];
+    state.ammoReserve = [Infinity, 120, 24, 90, 0];
+    state.health = 91; state.armour = 40;
+    state.crew.nitroCharges = 3;
+    state.crew.nitroActive = false;
+    state.crew.empState = 'active'; state.crew.empTimer = 6;
+    ctx.input.camYaw = Math.PI / 2; // camera west of player, looking east at the casino
+    player.group.position.set(-60, 0, -140);
+    player.yaw = Math.PI / 2;
+    player.group.rotation.y = Math.PI / 2;
+    police.setWanted(4);
+    // Vault guards (foot cops) close, east of the player; cop cars on the flanks,
+    // kept out of the banner's center band.
+    police.footCops.forEach((f, i) => {
+      const s = [[-40, -132], [-40, -148], [-25, -135], [-25, -145]][i % 4];
+      f.group.position.set(s[0], 0, s[1]);
+    });
+    police.cops.forEach((c, i) => {
+      const s = [[-30, -118], [-30, -162], [-14, -118], [-14, -162]][i % 4];
+      c.group.position.set(s[0], 0, s[1]);
+      c.group.rotation.y = Math.atan2(-60 - s[0], -140 - s[1]);
+    });
+    if (police.helis[0]) police.helis[0].group.position.set(-40, 42, -170);
+  }
 
-  world.hud.update(world);
-  world.updateCamera();
-  world.renderer.render(world.scene, world.camera);
-  window.__shotReady = true;
-  return true;
+  // Radio stays on SOL FM for every shot.
+  state.radio = { name: 'SOL FM 95.4', genre: 'SYNTHWAVE' };
 }

@@ -1,230 +1,458 @@
-// PORTO AZUL II v2.8 — entry point. Wires the city, vehicles, pedestrians,
-// police, player, missions, HUD, radio and saves into one game loop.
-// Shot mode (?shot=1..4) stages a frozen dossier frame instead of playing.
+// Porto Azul II — bootstrap, game loop, input, title/pause flow, shot mode.
 import * as THREE from 'three';
-import { makeRng, WORLD_SEED } from './rng.js';
+import { makeRng } from './rng.js';
 import { buildCity } from './city.js';
-import { createVehicles } from './vehicles.js';
+import { districtAt, createTurf } from './turf.js';
+import { createCrew } from './crew.js';
+import { createTraffic, createParked, detonate, updateExplosions, buildBoat } from './vehicles.js';
 import { createPeds } from './peds.js';
 import { createPolice } from './police.js';
-import { createPlayer } from './player.js';
+import { createPlayer, gearFor, WEAPONS } from './player.js';
 import { createMissions } from './missions.js';
-import { createHud } from './hud.js';
+import { createSideJobs } from './sidejobs.js';
 import { createAudio } from './audio.js';
-import { loadSave, saveGame } from './save.js';
+import { createHud } from './hud.js';
+import { saveGame, loadGame } from './save.js';
 import { applyShot } from './shots.js';
 
 const params = new URLSearchParams(location.search);
-const shotNum = parseInt(params.get('shot') || '0', 10) || 0;
+const SHOT = params.get('shot');
+const SEED = Number(params.get('seed') || 1);
 
-const state = {
-  day: 1, minutes: 19 * 60 + 7, cash: 0, wanted: 0, respect: 1,
-  missionIndex: 0, missionsDone: [], upgrades: { engine: 0, armour: 0, tires: 0 },
-  bestWanted: 0, playerCar: 'comet',
-};
-
-const saved = !shotNum ? loadSave() : null;
-if (saved) {
-  state.cash = saved.cash;
-  state.respect = saved.respect;
-  state.missionIndex = saved.missionIndex;
-  state.missionsDone = saved.missionsDone || [];
-  state.upgrades = { engine: 0, armour: 0, tires: 0, ...saved.upgrades };
-  state.bestWanted = saved.bestWanted || 0;
-  state.playerCar = saved.car || 'comet';
-  state.day = saved.day || 1;
-}
-
-const rng = makeRng(WORLD_SEED);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
+const canvas = document.getElementById('game');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
-document.getElementById('game').appendChild(renderer.domElement);
+renderer.setSize(window.innerWidth, window.innerHeight);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 600);
+scene.background = new THREE.Color(0x1a0f28);
+const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 1200);
 
-const world = {
-  state, scene, camera, renderer, rng,
-  frozen: false, cameraPose: null, audio: createAudio(),
-  hud: null, player: null, missions: null, police: null,
-  vehicles: null, peds: null, city: null, main: null,
+const rng = makeRng(SEED);
+
+// ---- shared state (the HUD, missions, police and shots all read this) ----
+const state = {
+  day: 1, clock: 19.07,
+  cash: 0, wanted: 0, health: 100, armour: 0, respect: 1,
+  missionNum: 1, missionName: 'FIRST LIGHT', missionObjective: "Reach Benny's Garage",
+  missionTimer: 300, missionPayout: 8000, missionDistrict: 'TORRE PLAZA', missionStageLabel: '',
+  districtObj: districtAt(-140, -120),
+  turfStanding: {}, turf: null,
+  weaponIdx: 0,
+  ammo: [Infinity, 30, 6, 30, 6],
+  ammoReserve: [Infinity, 120, 24, 90, 0],
+  driving: false, carName: 'ON FOOT', carHealth: 100, speedKmh: 0, gear: 1,
+  radio: { name: 'SOL FM 95.4', genre: 'SYNTHWAVE' },
+  racePos: null, sideJob: null, sideJobTimer: 0,
+  spikeWarning: false, spiked: false, spikeTimer: 0, pitSpin: 0,
+  hint: 'WASD move · E enter car',
+  title: true, paused: false, frozen: false,
+  missionsDone: 0, sideJobsDone: 0, carsStolen: 0, shotsFired: 0,
+  playerPos: new THREE.Vector3(-140, 0, -120),
+  playerYaw: 0,
+  objectivePos: { x: -140, z: -120 },
+  routeName: "BENNY'S GARAGE",
+  copPositions: [],
+  boatPos: null,
+  molotovAt: null,
+  wheelOpen: false,
+  crew: null,
 };
 
-world.city = buildCity(scene, rng);
-world.vehicles = createVehicles(scene, rng);
-world.peds = createPeds(scene, rng);
-world.police = createPolice(scene, rng);
-world.player = createPlayer(scene, rng, world);
-world.hud = createHud();
-world.missions = createMissions(world);
+const turf = createTurf();
+state.turf = turf;
+state.turfStanding = turf.standing;
+const crew = createCrew();
+state.crew = crew;
 
-world.main = {
-  wasted() {
-    const p = world.player;
-    world.hud.showBanner('WASTED', 'The cops got Daz. The garage patched him up — for a price.');
-    state.cash = Math.floor(state.cash * 0.9);
-    p.health = 100; p.armour = 0;
-    world.police.setWanted(0, world);
-    p.pos.x = 20; p.pos.z = 16;
-    if (p.car) { p.car.mesh.position.set(20, 0, 16); p.car.angle = 0; p.car.speed = 0; p.car.mesh.rotation.y = 0; }
-    else { p.mesh.position.set(20, 0, 16); }
-    p.angle = 0;
-  },
-  buyUpgrade(kind) {
-    const base = { engine: 5000, armour: 4000, tires: 3000 }[kind] || 3000;
-    const level = state.upgrades[kind] || 0;
-    if (level >= 3) { world.hud.flash(kind.toUpperCase() + ' ALREADY MAXED'); return; }
-    const cost = base + level * 2000;
-    if (state.cash < cost) { world.hud.flash('NOT ENOUGH CASH — ' + kind.toUpperCase() + ' LV' + (level + 1) + ' COSTS $' + cost.toLocaleString('en-US')); return; }
-    state.cash -= cost;
-    state.upgrades[kind] = level + 1;
-    if (kind === 'armour') world.player.armour = Math.min(100, 25 * state.upgrades.armour);
-    if (kind === 'tires' && world.player.car) world.player.car.accel += 3;
-    world.hud.flash(kind.toUpperCase() + ' LV' + state.upgrades[kind] + ' INSTALLED — $' + cost.toLocaleString('en-US'));
-    world.hud.update(world);
-    saveGame(state);
-    world.hud.saved();
-  },
+// ---- world ----
+const city = buildCity(scene, rng);
+const traffic = createTraffic(scene, rng, 32);
+const parked = createParked(scene, rng, 14);
+const peds = createPeds(scene, rng, 60);
+const police = createPolice(scene, state);
+const player = createPlayer(scene, state);
+const missions = createMissions(state);
+const sideJobs = createSideJobs(state, turf);
+const audio = createAudio();
+
+// Boat in the harbor (drivable in the finale; also a shot prop).
+const boat = buildBoat();
+boat.position.set(258, 0.4, -60);
+boat.rotation.y = -Math.PI / 2;
+scene.add(boat);
+state.boatPos = { x: 258, z: -60 };
+
+const OBJECTIVES = {
+  1: { x: -140, z: -140, name: "BENNY'S GARAGE" },
+  2: { x: 60, z: -180, name: "TONO'S HIDEOUT" },
+  3: { x: -200, z: 140, name: 'BEACH EXIT' },
+  4: { x: 0, z: -140, name: 'CASINO ROYALE' },
+  5: { x: 0, z: -140, name: 'CASINO VAULT' },
+  6: { x: 200, z: -140, name: 'EAST DOCK' },
+  7: { x: -40, z: 120, name: 'OLD TOWN ALLEY' },
+  8: { x: 0, z: -140, name: 'CASINO ROYALE' },
+  9: { x: -60, z: -260, name: 'RACE CHECKPOINT' },
+  10: { x: 200, z: -100, name: 'DOCK 3' },
+  11: { x: 0, z: -160, name: 'GANG CORNER' },
+  12: { x: 0, z: -140, name: 'CASINO ROYALE VAULT' },
 };
 
-function updateCamera() {
-  if (world.cameraPose) {
-    camera.position.set(world.cameraPose.pos[0], world.cameraPose.pos[1], world.cameraPose.pos[2]);
-    camera.lookAt(world.cameraPose.look[0], world.cameraPose.look[1], world.cameraPose.look[2]);
-    return;
+const hud = createHud(state, {
+  onResume: () => { state.paused = false; hud.showPause(false); },
+  onRestart: () => { state.paused = false; hud.showPause(false); restartMission(); },
+  onQuitTitle: () => { state.paused = false; hud.showPause(false); showTitle(); },
+});
+hud.bindButtons();
+
+function showTitle() {
+  state.title = true;
+  hud.showTitle(true);
+}
+function hideTitle() {
+  state.title = false;
+  hud.showTitle(false);
+}
+
+function restartMission() {
+  missions.start(state.missionNum);
+  const obj = OBJECTIVES[state.missionNum] || OBJECTIVES[1];
+  state.objectivePos = { x: obj.x, z: obj.z };
+  state.routeName = obj.name;
+  hud.flash('CHAPTER ' + state.missionNum + '/12: ' + state.missionName, state.missionObjective);
+}
+
+function startGame(slotData) {
+  audio.ensure();
+  audio.startMusic();
+  hideTitle();
+  if (slotData) {
+    state.cash = slotData.cash;
+    state.respect = slotData.respect;
+    state.health = slotData.health;
+    state.armour = slotData.armour;
+    state.clock = slotData.clock;
+    state.day = slotData.day;
+    Object.assign(turf.standing, slotData.turf || {});
+    missions.done = slotData.missionsDone || 0;
+    missions.start(slotData.missionNum || 1);
+  } else {
+    missions.start(1);
   }
-  const p = world.player;
-  const back = p.onFoot ? 7 : 10.5;
-  const h = p.onFoot ? 3.2 : 4.4;
-  const fx = Math.cos(p.angle), fz = -Math.sin(p.angle);
-  camera.position.set(p.pos.x - fx * back, h, p.pos.z - fz * back);
-  camera.lookAt(p.pos.x + fx * 8, 1.4, p.pos.z + fz * 8);
+  const obj = OBJECTIVES[state.missionNum] || OBJECTIVES[1];
+  state.objectivePos = { x: obj.x, z: obj.z };
+  state.routeName = obj.name;
+  hud.flash('CHAPTER ' + state.missionNum + '/12: ' + state.missionName, state.missionObjective);
 }
-world.updateCamera = updateCamera;
 
-// Input.
-const keys = {};
-const input = { forward: false, back: false, left: false, right: false, run: false };
-let wheelHeld = false;
-function syncInput() {
-  input.forward = !!(keys.KeyW || keys.ArrowUp);
-  input.back = !!(keys.KeyS || keys.ArrowDown);
-  input.left = !!(keys.KeyA || keys.ArrowLeft);
-  input.right = !!(keys.KeyD || keys.ArrowRight);
-  input.run = !!(keys.ShiftLeft || keys.ShiftRight);
-}
+// ---- input ----
+const input = { forward: false, back: false, left: false, right: false, camYaw: Math.PI, camPitch: 0.32 };
+let dragging = false;
+let downX = 0, downY = 0, moved = 0;
+let lastFireHeat = 0;
+
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
-  keys[e.code] = true;
-  syncInput();
-  world.audio.ensure();
-  if (e.code === 'KeyE') world.player.tryEnterOrJack();
-  if (e.code === 'KeyQ') { wheelHeld = true; world.hud.showWheel(true, world.player.weapon); }
-  if (e.code === 'Digit1') world.player.selectWeapon('pistol');
-  if (e.code === 'Digit2') world.player.selectWeapon('smg');
-  if (e.code === 'Digit3') world.player.selectWeapon('shotgun');
-  if (e.code === 'KeyC') { world.audio.nextStation(); world.audio.start(); }
-  if (e.code === 'KeyM' && !world.missions.active) world.missions.start(world.missions.index);
-  if (e.code === 'KeyF') world.player.fire();
-  if (e.code === 'KeyG') {
-    const g = world.city.garagePos;
-    const near = Math.hypot(world.player.pos.x - g.x, world.player.pos.z - g.z) < 16;
-    if (near) {
-      const panel = document.getElementById('garage');
-      world.hud.showGarage(!(panel && panel.classList.contains('show')));
+  const k = e.key.toLowerCase();
+  if (k === 'w' || k === 'arrowup') input.forward = true;
+  if (k === 's' || k === 'arrowdown') input.back = true;
+  if (k === 'a' || k === 'arrowleft') input.left = true;
+  if (k === 'd' || k === 'arrowright') input.right = true;
+  if (k === 'q') { state.wheelOpen = true; hud.showWheel(true); }
+  if (k >= '1' && k <= '5' && !state.title) player.selectWeapon(Number(k) - 1);
+  if (k === 'enter' && state.title) startGame(null);
+  if (k === 'p' || k === 'escape') {
+    if (!state.title) {
+      state.paused = !state.paused;
+      hud.showPause(state.paused);
     }
   }
+  if (state.title || state.paused || state.frozen) return;
+  if (k === 'e') tryEnterExitCar();
+  if (k === 'x') {
+    if (crew.useEmp(state)) { hud.toast('MARA EMP — POLICE BLIND 8s'); police.clear(); police.setWanted(state.wanted); }
+    else hud.toast(crew.empState === 'ready' ? 'EMP NEEDS $500' : 'EMP ' + crew.empLabel());
+  }
+  if (k === 'g') useGarage();
+  if (k === 'c') { state.radio = audio.nextStation(); }
+  if (k === 'm') { const m = audio.toggleMute(); hud.toast(m ? 'MUTED' : 'SOUND ON'); }
+  if (k === 'r') restartMission();
+  if (k === 't') startSideJob('taxi');
+  if (k === 'y') startSideJob('dock');
+  if (k === 'u') startSideJob('race');
+  if (k === 'shift') { if (crew.useNitro(state)) crew.spendNitroCharge(); }
 });
 window.addEventListener('keyup', (e) => {
-  keys[e.code] = false;
-  syncInput();
-  if (e.code === 'KeyQ') { wheelHeld = false; world.hud.showWheel(false, world.player.weapon); }
+  const k = e.key.toLowerCase();
+  if (k === 'w' || k === 'arrowup') input.forward = false;
+  if (k === 's' || k === 'arrowdown') input.back = false;
+  if (k === 'a' || k === 'arrowleft') input.left = false;
+  if (k === 'd' || k === 'arrowright') input.right = false;
+  if (k === 'q') { state.wheelOpen = false; hud.showWheel(false); }
+  if (k === 'shift') crew.releaseNitro();
 });
-renderer.domElement.addEventListener('mousedown', () => {
-  world.audio.ensure();
-  if (!world.player.onFoot) return;
-  world.player.fire();
+canvas.addEventListener('mousedown', (e) => { dragging = true; moved = 0; downX = e.clientX; downY = e.clientY; });
+window.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  const dx = e.clientX - downX, dy = e.clientY - downY;
+  moved += Math.abs(dx) + Math.abs(dy);
+  downX = e.clientX; downY = e.clientY;
+  input.camYaw -= dx * 0.005;
+  input.camPitch = Math.max(0.08, Math.min(0.9, input.camPitch + dy * 0.003));
 });
-document.querySelectorAll('#garage button[data-upgrade]').forEach((btn) => {
-  btn.addEventListener('click', () => world.main.buyUpgrade(btn.dataset.upgrade));
+window.addEventListener('mouseup', () => {
+  if (dragging && moved < 6 && !state.title && !state.paused && !state.frozen) {
+    player.fire();
+    audio.shot();
+    const now = performance.now();
+    if (now - lastFireHeat > 3000 && state.wanted < 5) {
+      const nearCop = police.cops.some((c) => c.group.position.distanceTo(player.group.position) < 60);
+      if (nearCop) { state.wanted = Math.min(5, state.wanted + 1); police.setWanted(state.wanted); lastFireHeat = now; }
+    }
+  }
+  dragging = false;
 });
-document.getElementById('garage-close').addEventListener('click', () => world.hud.showGarage(false));
-
+document.getElementById('title-slots').addEventListener('click', (e) => {
+  const slot = e.target.closest('.slot-save');
+  if (!slot) return;
+  const idx = Array.from(slot.parentElement.children).indexOf(slot);
+  const data = loadGame(idx + 1);
+  startGame(data || null);
+});
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Start screen / shot mode.
-const startScreen = document.getElementById('start-screen');
-if (shotNum) {
-  if (startScreen) startScreen.style.display = 'none';
-} else {
-  document.getElementById('start-btn').addEventListener('click', () => {
-    world.audio.ensure();
-    world.audio.start();
-    startScreen.style.display = 'none';
-    if (!world.missions.active) world.missions.start(state.missionIndex);
-    world.hud.update(world);
-  });
+function tryEnterExitCar() {
+  if (!player.onFoot) { player.exitCar(); state.hint = 'WASD move · E enter car'; return; }
+  const pos = player.group.position;
+  // Boat first if close to the harbor boat.
+  if (Math.hypot(pos.x - boat.position.x, pos.z - boat.position.z) < 6) {
+    player.enterBoat(boat);
+    state.hint = 'WASD sail · E step off';
+    hud.toast('VELA SPEEDBOAT — HARBOR ESCAPE READY');
+    return;
+  }
+  const near = traffic.nearest(pos, 4.5);
+  let target = near ? { group: near.group, model: near.model } : null;
+  if (!target) {
+    for (const p of parked) {
+      if (p.group.position.distanceTo(pos) < 4.5) { target = p; break; }
+    }
+  }
+  if (!target) return;
+  const witnessed = peds.witnessNear(pos, 20) ||
+    police.cops.some((c) => c.group.position.distanceTo(pos) < 30);
+  player.enterCar(target);
+  state.carsStolen += 1;
+  state.hint = 'WASD drive · E exit · Shift nitro';
+  peds.fleeFrom(pos);
+  if (witnessed && state.wanted < 5) {
+    state.wanted = Math.min(5, state.wanted + 1);
+    police.setWanted(state.wanted);
+    hud.toast('CARJACKED — WITNESSED! WANTED ★'.repeat(0) + 'WANTED UP');
+  } else {
+    hud.toast('CARJACKED — ' + target.model.name);
+  }
 }
 
-// Starting position: Benny's Garage.
-world.player.pos.x = 20;
-world.player.pos.z = 30;
-world.player.angle = Math.PI / 2;
-world.player.mesh.position.set(20, 0, 30);
-if (!shotNum && saved) world.player.spawnCar(state.playerCar);
+function useGarage() {
+  const pos = player.group.position;
+  const d = Math.hypot(pos.x + 140, pos.z + 140);
+  if (d > 14) { hud.toast("BENNY'S GARAGE IS IN TORRE PLAZA — FOLLOW THE ROUTE"); return; }
+  if (crew.buyEngine(state)) { hud.toast("BENNY'S GARAGE — ENGINE Lv " + crew.upgrades.engine + ' · -$5,000'); return; }
+  if (crew.buyArmour(state)) { hud.toast("BENNY'S GARAGE — ARMOUR 100% · -$1,000"); return; }
+  crew.refillNitro();
+  hud.toast("BENNY'S GARAGE — NITRO REFILLED · ENGINE MAXED");
+}
 
-let saveTimer = 0;
-let decayTimer = 0;
-const clock = new THREE.Clock();
+function startSideJob(kind) {
+  const job = sideJobs.start(kind);
+  if (!job) { hud.toast('FINISH YOUR CURRENT JOB FIRST'); return; }
+  const obj = kind === 'taxi' ? { x: -40, z: 120 } : kind === 'dock' ? { x: 200, z: -100 } : { x: -60, z: -260 };
+  state.objectivePos = obj;
+  state.routeName = job.job.label;
+  hud.toast('SIDE JOB: ' + job.job.label + ' — ' + job.job.objective + ' · $' + job.job.payout.toLocaleString());
+}
 
-function loop() {
-  requestAnimationFrame(loop);
-  const dt = Math.min(clock.getDelta(), 0.05);
-  if (!world.frozen) {
-    state.minutes += dt * 0.05;
-    world.player.update(dt, input);
-    world.vehicles.update(dt, false);
-    world.peds.update(dt, false);
-    world.police.update(dt, world);
-    world.city.update(dt);
-    world.missions.update(dt);
-    // Mission complete when the player reaches the target.
-    if (world.missions.active && world.missions.atTarget()) world.missions.complete();
-    // Wanted decays when the heat dies down.
-    if (state.wanted > 0) {
-      const nearCop = world.police.cops.some((c) => c.active && Math.hypot(c.mesh.position.x - world.player.pos.x, c.mesh.position.z - world.player.pos.z) < 40);
-      if (!nearCop) {
-        decayTimer += dt;
-        if (decayTimer > 25) { decayTimer = 0; world.police.setWanted(state.wanted - 1, world); }
-      } else decayTimer = 0;
-    }
-    if (world.player.health <= 0) world.main.wasted();
-    saveTimer += dt;
-    if (saveTimer > 20) { saveTimer = 0; saveGame(state); world.hud.saved(); }
-    world.audio.setEngineRpm(world.player.onFoot ? 0 : Math.min(1, (world.player.speedKmh || 0) / 160));
-    world.hud.update(world);
+// ---- camera ----
+function updateCamera() {
+  const pos = state.playerPos;
+  const dist = state.driving ? 12 : 8.5;
+  const height = 4.6 + input.camPitch * 4;
+  const back = state.driving ? player.yaw : input.camYaw;
+  const cx = pos.x - Math.sin(back) * dist;
+  const cz = pos.z - Math.cos(back) * dist;
+  camera.position.set(cx, height, cz);
+  camera.lookAt(pos.x, 1.6, pos.z);
+}
+
+// ---- main loop ----
+let explosions = [];
+let hiddenTimer = 0;
+let lastT = performance.now();
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now;
+  if (state.paused || state.title) {
+    renderer.render(scene, camera);
+    return;
   }
+  if (!state.frozen) {
+    // Day cycle: 1 game hour per 150s, dusk 19:07 -> night 21:40.
+    state.clock += dt / 150;
+    if (state.clock >= 24) { state.clock -= 24; state.day += 1; }
+    city.updateDayCycle(state.clock);
+  }
+  // Player position + district.
+  const pPos = player.onFoot ? player.group.position
+    : player.car ? player.car.group.position : player.boat.position;
+  state.playerPos.copy(pPos);
+  state.playerYaw = player.yaw;
+  state.districtObj = districtAt(pPos.x, pPos.z);
+  state.gear = gearFor(state.speedKmh);
+  state.copPositions = police.cops.map((c) => ({ x: c.group.position.x, z: c.group.position.z }));
+
+  player.update(dt, input, state.frozen);
+  crew.tick(dt);
+  traffic.update(dt, state.frozen);
+  peds.update(dt, state.frozen, state.shotsFired > 0 ? pPos : null);
+  police.update(dt, pPos, null, state.frozen);
+  missions.tick(dt);
+  sideJobs.tick(dt);
+
+  // Wanted decay: hidden from every cop for 20s -> heat drops one star.
+  if (state.wanted > 0) {
+    const seen = police.cops.some((c) => c.group.position.distanceTo(pPos) < 40) || police.helis.length > 0;
+    if (!seen) {
+      hiddenTimer += dt;
+      if (hiddenTimer > 20) { state.wanted -= 1; police.setWanted(state.wanted); hiddenTimer = 0; }
+    } else hiddenTimer = 0;
+  }
+
+  // Mission objective reached?
+  const obj = state.objectivePos;
+  const od = Math.hypot(pPos.x - obj.x, pPos.z - obj.z);
+  if (!state.frozen && od < 12) {
+    if (sideJobs.active) {
+      const done = sideJobs.complete();
+      if (done) {
+        hud.toast('SIDE JOB DONE — ' + done.job.label + ' +$' + done.payout.toLocaleString());
+        audio.cash();
+        const o2 = OBJECTIVES[state.missionNum] || OBJECTIVES[1];
+        state.objectivePos = { x: o2.x, z: o2.z };
+        state.routeName = o2.name;
+      }
+    } else if (missions.current.type === 'finale') {
+      if (missions.stage < 2) {
+        missions.nextStage();
+        state.missionStageLabel = missions.stageLabel();
+        state.missionObjective = missions.current.stages[missions.stage];
+        if (missions.stage === 1) {
+          state.objectivePos = { x: 252, z: -60 };
+          state.routeName = 'VELA SPEEDBOAT';
+          state.wanted = 5; police.setWanted(5);
+          hud.flash('STAGE 2/3 — FIVE-STAR CHASE', 'Break the harbor cordon!');
+        } else {
+          state.objectivePos = { x: 258, z: -60 };
+          state.routeName = 'BOAT ESCAPE';
+          hud.flash('STAGE 3/3 — BOAT ESCAPE', 'Sail out of Porto Azul!');
+        }
+      } else {
+        finishMission();
+      }
+    } else {
+      finishMission();
+    }
+  }
+  // Mission timer expired -> restart the chapter.
+  if (missions.timer <= 0 && !state.frozen) {
+    hud.toast('TIME UP — CHAPTER RESTARTED');
+    restartMission();
+  }
+
+  // Car collisions: ramming traffic hard explodes it.
+  if (state.driving && player.car) {
+    for (const c of traffic.cars) {
+      if (c.group.userData.wrecked) continue;
+      const d = c.group.position.distanceTo(player.car.group.position);
+      if (d < 3.2 && state.speedKmh > 45) {
+        const ex = detonate(scene, c.group);
+        if (ex) explosions.push(ex);
+        audio.explosion();
+        state.carHealth = Math.max(0, state.carHealth - 15);
+        hud.toast('CAR EXPLODED — BURNING WRECK');
+        break;
+      }
+    }
+  }
+  // Molotov fire: detonate the nearest car to the impact point.
+  if (state.molotovAt) {
+    const m = state.molotovAt;
+    let best = null, bd = 9;
+    for (const c of traffic.cars) {
+      if (c.group.userData.wrecked) continue;
+      const d = Math.hypot(c.group.position.x - m.x, c.group.position.z - m.z);
+      if (d < bd) { bd = d; best = c; }
+    }
+    if (best) {
+      const ex = detonate(scene, best.group);
+      if (ex) explosions.push(ex);
+      audio.explosion();
+    }
+    state.molotovAt = null;
+  }
+  explosions = updateExplosions(explosions, dt);
+
+  audio.engine(state.speedKmh, state.driving);
+  audio.siren(state.wanted >= 2);
+
   updateCamera();
+  hud.update();
   renderer.render(scene, camera);
 }
-loop();
 
-if (shotNum) {
-  // One staged frame, then signal the capture tool.
-  requestAnimationFrame(() => {
-    try {
-      applyShot(world, shotNum);
-    } catch (err) {
-      window.__shotError = String(err && err.message || err);
-    }
-  });
+function finishMission() {
+  const m = missions.complete({ turf });
+  audio.cash();
+  saveGame(1, state);
+  hud.flash('CHAPTER ' + m.num + '/12 COMPLETE', '+' + '$' + m.payout.toLocaleString() + ' · ' + m.district + ' TURF UP');
+  if (missions.done < 12) {
+    const o = OBJECTIVES[state.missionNum] || OBJECTIVES[1];
+    state.objectivePos = { x: o.x, z: o.z };
+    state.routeName = o.name;
+    state.missionStageLabel = missions.stageLabel();
+  } else {
+    hud.flash('PORTO AZUL II — CAMPAIGN COMPLETE', 'Daz owns the city. $' + state.cash.toLocaleString());
+  }
 }
-window.__world = world;
+
+// ---- boot ----
+if (SHOT) {
+  // Deterministic dossier shot: freeze the world, stage, render once.
+  try {
+    state.title = false;
+    state.paused = false;
+    hud.showTitle(false);
+    applyShot(SHOT, { state, player, police, traffic, parked, scene, boat, input });
+    city.updateDayCycle(state.clock);
+    state.gear = gearFor(state.speedKmh);
+    state.copPositions = police.cops.map((c) => ({ x: c.group.position.x, z: c.group.position.z }));
+    state.missionStageLabel = state.missionStageLabel || '';
+    updateCamera();
+    hud.update();
+    renderer.render(scene, camera);
+    window.__shotReady = true;
+  } catch (err) {
+    window.__shotError = String(err && err.stack || err);
+    throw err;
+  }
+} else {
+  showTitle();
+  updateCamera();
+  requestAnimationFrame(frame);
+}

@@ -1,66 +1,68 @@
-// Story campaign — 8 chapters. Chapters 1–5 are the v2.7 campaign; 6–8 are new
-// in v2.8. Each mission has a timer, a payout, a home district and a target
-// point in the city. Completing a mission pays out, raises respect and opens
-// the next chapter. Failing the timer restarts the chapter.
+// 12 story missions. Chapters 1-8 keep the v2.8 arc; 9-11 are new; 12 is the
+// reworked 3-stage finale "The Last Score".
 export const MISSIONS = [
-  { id: 1, chapter: 'CHAPTER 1/8', name: 'Welcome to Porto Azul', giver: 'Benny', payout: 9500, timer: 300, district: 'TORRE PLAZA', target: [60, -40], desc: 'Benny needs a driver. Pick up the package at Torre Plaza and bring it to the garage — no cops, no questions.' },
-  { id: 2, chapter: 'CHAPTER 2/8', name: "Tono's Debt", giver: 'Tono', payout: 14000, timer: 240, district: 'TORRE PLAZA', target: [-70, 60], desc: "Tono owes the wrong people. Collect the cash from the plaza drop, then lose the tail before you reach Benny's." },
-  { id: 3, chapter: 'CHAPTER 3/8', name: 'Heat Wave', giver: 'Mara', payout: 19000, timer: 180, district: 'PALMLINE BEACH', target: [90, 90], desc: 'Mara set the meet at the beach. Get there fast — the whole city is hot tonight and the heat is rising.' },
-  { id: 4, chapter: 'CHAPTER 4/8', name: 'The Vault Job', giver: 'Benny', payout: 26000, timer: 300, district: 'THE MIRAGE STRIP', target: [-90, -80], desc: 'Benny cased a vault on the Strip. Grab the bag from the courier and walk it out before the guards wake up.' },
-  { id: 5, chapter: 'CHAPTER 5/8', name: 'Casino Vault Run', giver: 'Mara', payout: 28500, timer: 240, district: 'THE MIRAGE STRIP', target: [-110, -60], desc: 'The big one on the Strip: crack the casino vault, dodge the guards and the cops, and vanish into the neon.' },
-  { id: 6, chapter: 'CHAPTER 6/8', name: 'Harbor Lights', giver: 'Tono', payout: 32000, timer: 240, district: 'HARBOR EAST', target: [120, -110], desc: 'A dock smuggle run at Harbor East. Load the crates onto the boat, keep the dock lights off you, and get paid.' },
-  { id: 7, chapter: 'CHAPTER 7/8', name: 'Air One Down', giver: 'Benny', payout: 41000, timer: 300, district: 'THE MIRAGE STRIP', target: [-60, 100], desc: 'Five stars and a helicopter overhead. Lose the chase through the roadblocks and make Air One give up.' },
-  { id: 8, chapter: 'CHAPTER 8/8', name: 'The Last Score', giver: 'Mara', payout: 60000, timer: 360, district: 'THE MIRAGE STRIP', target: [-100, -100], desc: 'The finale: one last casino vault heist on the Strip. Everything Benny, Tono and Mara built comes down to this run.' },
+  { num: 1, name: 'FIRST LIGHT', district: 'TORRE PLAZA', payout: 8000, timer: 300, type: 'delivery', objective: "Reach Benny's Garage", briefing: 'Benny needs a driver. Get to the garage.' },
+  { num: 2, name: "TONO'S DEBT", district: 'TORRE PLAZA', payout: 12000, timer: 240, type: 'chase', objective: 'Lose the tail, reach Tono', briefing: 'Tono owes the wrong people. Drive him clear.' },
+  { num: 3, name: 'HEAT WAVE', district: 'PALMLINE BEACH', payout: 15000, timer: 300, type: 'escape', objective: 'Escape the beach lockdown', briefing: 'Cops swept the beach. Break the cordon.' },
+  { num: 4, name: 'THE VAULT JOB', district: 'THE MIRAGE STRIP', payout: 21000, timer: 360, type: 'heist', objective: 'Crack the back-room safe', briefing: 'A quiet casino keeps loud money. Take it.' },
+  { num: 5, name: 'CASINO VAULT RUN', district: 'THE MIRAGE STRIP', payout: 26000, timer: 300, type: 'vault', objective: 'Grab the vault cash, get out', briefing: 'The Strip never sleeps. Neither do its guards.' },
+  { num: 6, name: 'HARBOR LIGHTS', district: 'HARBOR EAST', payout: 32000, timer: 300, type: 'smuggle', objective: 'Move the crates to the dock', briefing: 'Crates in, questions out. Run the harbor.' },
+  { num: 7, name: 'AIR ONE DOWN', district: 'OLD TOWN', payout: 41000, timer: 360, type: 'escape', objective: 'Lose a 5-star chase', briefing: 'Every cop in Porto Azul is on you. Vanish.' },
+  { num: 8, name: 'CASINO ROYALE', district: 'THE MIRAGE STRIP', payout: 60000, timer: 360, type: 'heist', objective: 'Hit the Royale, vanish in the crowd', briefing: 'The biggest room on the Strip. One night only.' },
+  { num: 9, name: 'STREET KINGS', district: 'TORRE PLAZA', payout: 35000, timer: 240, type: 'race', objective: 'Win the 3-lap street race', briefing: 'Tono wired the Comet GT with nitro. Prove it.' },
+  { num: 10, name: 'DOCK ORDERS', district: 'HARBOR EAST', payout: 28000, timer: 300, type: 'delivery', objective: 'Finish 3 dock deliveries in a row', briefing: 'Three drops, no mistakes, harbor pays.' },
+  { num: 11, name: 'TURF WAR', district: 'THE MIRAGE STRIP', payout: 44000, timer: 300, type: 'shootout', objective: 'Take the Strip turf from the gang', briefing: 'The Strip belongs to whoever holds it. Hold it.' },
+  { num: 12, name: 'THE LAST SCORE', district: 'THE MIRAGE STRIP', payout: 75000, timer: 420, type: 'finale', objective: 'Vault, chase, boat escape', briefing: 'One last score. Vault, chase, open water.', stages: ['STAGE 1/3 — CASINO VAULT', 'STAGE 2/3 — FIVE-STAR CHASE', 'STAGE 3/3 — BOAT ESCAPE'] },
 ];
 
-export function createMissions(world) {
-  const m = {
+export function createMissions(state) {
+  return {
     list: MISSIONS,
-    index: world.state.missionIndex || 0,
-    active: false,
-    timeLeft: 0,
-    current() { return MISSIONS[Math.min(this.index, MISSIONS.length - 1)]; },
-    start(i) {
-      this.index = Math.max(0, Math.min(i, MISSIONS.length - 1));
-      this.active = true;
-      this.timeLeft = this.current().timer;
-      world.state.missionIndex = this.index;
-      world.hud.showBanner(this.current().chapter + ': ' + this.current().name, this.current().desc);
-      return this.current();
+    current: MISSIONS[0],
+    stage: 0,
+    timer: MISSIONS[0].timer,
+    done: 0,
+    start(num) {
+      const m = MISSIONS[num - 1];
+      if (!m) return null;
+      this.current = m;
+      this.stage = 0;
+      this.timer = m.timer;
+      state.missionNum = m.num;
+      state.missionName = m.name;
+      state.missionObjective = m.objective;
+      state.missionTimer = m.timer;
+      state.missionPayout = m.payout;
+      state.missionDistrict = m.district;
+      return m;
     },
-    update(dt) {
-      if (!this.active) return;
-      this.timeLeft -= dt;
-      if (this.timeLeft <= 0) {
-        this.timeLeft = 0;
-        this.active = false;
-        world.hud.showBanner('MISSION FAILED', this.current().name + ' — out of time. Benny is not happy. Try again.');
-        world.state.wanted = Math.min(5, world.state.wanted + 1);
+    stageLabel() {
+      const m = this.current;
+      if (m.stages) return m.stages[this.stage] || '';
+      return '';
+    },
+    nextStage() {
+      const m = this.current;
+      if (m.stages && this.stage < m.stages.length - 1) {
+        this.stage += 1;
+        return true;
       }
+      return false;
     },
-    atTarget() {
-      const t = this.current().target;
-      const p = world.player.pos;
-      const dx = p.x - t[0], dz = p.z - t[1];
-      return dx * dx + dz * dz < 14 * 14;
+    complete(stateApi) {
+      const m = this.current;
+      state.cash += m.payout;
+      this.done += 1;
+      stateApi.turf.gain(m.district);
+      state.missionsDone = this.done;
+      state.respect = Math.min(10, 1 + Math.floor(this.done / 2));
+      if (this.done < 12) this.start(this.done + 1);
+      return m;
     },
-    complete() {
-      if (!this.active) return false;
-      const cur = this.current();
-      this.active = false;
-      world.state.cash += cur.payout;
-      world.state.respect = Math.min(10, world.state.respect + 1);
-      if (!world.state.missionsDone.includes(cur.id)) world.state.missionsDone.push(cur.id);
-      world.hud.showBanner('MISSION PASSED — $' + cur.payout.toLocaleString('en-US'), cur.name + ' complete. Respect up. Next job is waiting.');
-      if (this.index < MISSIONS.length - 1) {
-        this.index++;
-        world.state.missionIndex = this.index;
-        setTimeout(() => { if (!world.frozen) this.start(this.index); }, 2500);
-      } else {
-        world.hud.showBanner('THE LAST SCORE — DONE', 'Porto Azul is yours, Daz. Every chapter complete.');
-      }
-      return true;
+    tick(dt) {
+      if (state.frozen) return;
+      this.timer = Math.max(0, this.timer - dt);
+      state.missionTimer = this.timer;
     },
   };
-  return m;
 }
